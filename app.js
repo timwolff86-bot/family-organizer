@@ -255,18 +255,40 @@ function eventsOn(day) {
   const out = [];
   for (const ev of state.data.events) {
     const weekly = ev.weekdays?.length > 0;
-    const hit = weekly ? ev.weekdays.includes(wd) && (!ev.end_date || ev.end_date >= day) : ev.date === day;
+    // Einmalige Termine können über mehrere Tage gehen (date … end_date)
+    const hit = weekly
+      ? ev.weekdays.includes(wd) && (!ev.end_date || ev.end_date >= day)
+      : ev.date && ev.date <= day && (ev.end_date || ev.date) >= day;
     if (!hit) continue;
     const occ = state.data.event_occurrences.find((o) => o.event_id === ev.id && o.date === day);
-    out.push({
-      ev,
-      occ,
-      day,
-      weekly,
-      cancelled: occ?.cancelled || false,
-    });
+    const multi = !weekly && ev.end_date && ev.end_date > ev.date;
+    const o = { ev, occ, day, weekly, multi, cancelled: occ?.cancelled || false };
+    o.time = timeLabel(o);
+    // Sortierung: Ganztägiges oben, dann nach Uhrzeit
+    o.sort = o.time.startsWith('Ganz') || o.time.startsWith('bis') ? '' : D.hm(ev.start_time);
+    out.push(o);
   }
-  return out.sort((a, b) => (a.ev.start_time || '99').localeCompare(b.ev.start_time || '99') || a.ev.title.localeCompare(b.ev.title));
+  return out.sort((a, b) => a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
+}
+
+// Uhrzeit-Text für einen Termin an einem bestimmten Tag
+function timeLabel({ ev, day, multi }) {
+  const start = D.hm(ev.start_time);
+  const end = D.hm(ev.end_time);
+  if (multi) {
+    if (day === ev.date && start) return `ab ${start}`;
+    if (day === ev.end_date && end) return `bis ${end}`;
+    return 'Ganztägig';
+  }
+  if (!start) return 'Ganztägig';
+  return end ? `${start}–${end}` : start;
+}
+
+// "Mo 26.10. – Fr 30.10. · Tag 2 von 5"
+function rangeLabel({ ev, day }) {
+  const total = Math.round((D.fromKey(ev.end_date) - D.fromKey(ev.date)) / 86400000) + 1;
+  const n = Math.round((D.fromKey(day) - D.fromKey(ev.date)) / 86400000) + 1;
+  return `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)} · Tag ${n} von ${total}`;
 }
 
 function setOccurrence(o, patch) {
@@ -277,14 +299,15 @@ function setOccurrence(o, patch) {
 
 function eventCard(o) {
   const { ev } = o;
-  const time = ev.start_time ? `${D.hm(ev.start_time)}${ev.end_time ? `–${D.hm(ev.end_time)}` : ''}` : '–';
+  const allDay = o.time === 'Ganztägig';
   return `
-    <article class="card event ${o.cancelled ? 'cancelled' : ''}">
+    <article class="card event ${o.cancelled ? 'cancelled' : ''} ${o.multi ? 'multi' : ''}">
       <button class="event-main" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
-        <div class="time">${esc(time)}</div>
+        <div class="time ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>
         <div class="body">
           <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}</div>
           <div class="meta">${chip(ev.member_id)}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
+          ${o.multi ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
           ${o.cancelled ? '<div class="tag">Fällt aus</div>' : ''}
           ${ev.notes ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
         </div>
@@ -451,7 +474,7 @@ function viewWoche() {
                 ? events
                     .map(
                       (o) => `<div class="wline ${o.cancelled ? 'cancelled' : ''}">
-                        <span class="muted">${o.ev.start_time ? D.hm(o.ev.start_time) : '–'}</span>
+                        <span class="muted">${o.time === 'Ganztägig' ? (o.multi ? '📆' : 'ganzt.') : esc(o.time)}</span>
                         ${esc(o.ev.title)} ${chip(o.ev.member_id)}
                       </div>`
                     )
@@ -606,7 +629,7 @@ function itemForm(item) {
 function viewMehr() {
   const ms = members();
   const events = [...state.data.events]
-    .filter((e) => e.weekdays?.length || (e.date && e.date >= D.todayKey()))
+    .filter((e) => e.weekdays?.length || (e.date && (e.end_date || e.date) >= D.todayKey()))
     .sort((a, b) => !!b.weekdays?.length - !!a.weekdays?.length || (a.date || '').localeCompare(b.date || '') || a.title.localeCompare(b.title));
   const tasks = state.data.tasks.filter((t) => !isReminder(t) && (t.weekdays?.length || !t.done_at));
   const reminders = state.data.tasks
@@ -621,6 +644,8 @@ function viewMehr() {
   const when = (x) =>
     x.weekdays?.length
       ? [...x.weekdays].sort().map((d) => D.WD_SHORT[d - 1]).join(', ')
+      : x.date && x.end_date && x.end_date > x.date
+        ? `${D.formatShort(x.date)} – ${D.formatShort(x.end_date)}`
       : x.date || x.due_date
         ? D.formatShort(x.date || x.due_date)
         : 'ohne Datum';
@@ -896,23 +921,31 @@ function eventForm(ev, day) {
   const isNew = !ev;
   ev ||= { date: day || state.date };
   const weekly = ev.weekdays?.length > 0;
+  const multi = !weekly && ev.end_date && ev.end_date > ev.date;
+  const allDay = !isNew && !ev.start_time;
   const o = !isNew && day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
 
   const inner = `
     <label>Was?<input name="title" value="${esc(ev.title || '')}" placeholder="z. B. Pickleball" required /></label>
     <label>Für wen?<select name="member_id">${memberOptions(ev.member_id, { empty: '– alle / niemand –' })}</select></label>
-    ${repeatSwitch('repeat', weekly ? 'weekly' : 'once', [
-      ['once', 'Einmalig'],
+    ${repeatSwitch('repeat', weekly ? 'weekly' : multi ? 'multi' : 'once', [
+      ['once', 'Ein Tag'],
+      ['multi', 'Mehrere Tage'],
       ['weekly', 'Jede Woche'],
     ])}
-    <label data-show="once">Datum<input type="date" name="date" value="${esc(ev.date || state.date)}" /></label>
+    <label data-show="once">Datum<input type="date" name="date_once" value="${esc(ev.date || state.date)}" /></label>
+    <div class="row" data-show="multi">
+      <label>Von<input type="date" name="date_from" value="${esc(ev.date || state.date)}" /></label>
+      <label>Bis<input type="date" name="date_to" value="${esc(multi ? ev.end_date : D.addDays(ev.date || state.date, 1))}" /></label>
+    </div>
     <div data-show="weekly">
       ${weekdayPicker(ev.weekdays || [D.isoWeekday(day || state.date)])}
-      <label>Bis (optional)<input type="date" name="end_date" value="${esc(ev.end_date || '')}" /></label>
+      <label>Serie endet am (optional)<input type="date" name="series_end" value="${esc(weekly ? ev.end_date || '' : '')}" /></label>
     </div>
-    <div class="row">
-      <label>Von<input type="time" name="start_time" value="${esc(D.hm(ev.start_time))}" /></label>
-      <label>Bis<input type="time" name="end_time" value="${esc(D.hm(ev.end_time))}" /></label>
+    <label class="check-line"><input type="checkbox" name="all_day" ${allDay ? 'checked' : ''}/> Ganztägig</label>
+    <div class="row" data-times ${allDay ? 'hidden' : ''}>
+      <label><span data-time-label="start">${multi ? 'Beginn (1. Tag)' : 'Beginn'}</span><input type="time" name="start_time" value="${esc(D.hm(ev.start_time))}" /></label>
+      <label><span data-time-label="end">${multi ? 'Ende (letzter Tag)' : 'Ende'}</span><input type="time" name="end_time" value="${esc(D.hm(ev.end_time))}" /></label>
     </div>
     <label>Wo? (optional)<input name="location" value="${esc(ev.location || '')}" /></label>
     <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>`;
@@ -935,15 +968,26 @@ function eventForm(ev, day) {
       const repeat = f.get('repeat');
       const wds = readWeekdays($('#sheet-root form'));
       if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
+      let date = null;
+      let endDate = null;
+      if (repeat === 'once') date = f.get('date_once') || state.date;
+      if (repeat === 'multi') {
+        date = f.get('date_from') || state.date;
+        endDate = f.get('date_to') || null;
+        if (!endDate || endDate < date) return toast('Das Ende muss nach dem Beginn liegen.');
+        if (endDate === date) endDate = null;
+      }
+      if (repeat === 'weekly') endDate = f.get('series_end') || null;
+      const allDayChecked = f.get('all_day') === 'on';
       save('events', {
         id: ev.id,
         title: f.get('title').trim(),
         member_id: f.get('member_id') || null,
-        date: repeat === 'once' ? f.get('date') || state.date : null,
+        date,
         weekdays: repeat === 'weekly' ? wds : null,
-        end_date: repeat === 'weekly' ? f.get('end_date') || null : null,
-        start_time: f.get('start_time') || null,
-        end_time: f.get('end_time') || null,
+        end_date: endDate,
+        start_time: allDayChecked ? null : f.get('start_time') || null,
+        end_time: allDayChecked ? null : f.get('end_time') || null,
         location: f.get('location').trim() || null,
         notes: f.get('notes').trim() || null,
       });
@@ -1303,6 +1347,12 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
+  if (el.name === 'all_day') el.form.querySelector('[data-times]').hidden = el.checked;
+  if (el.name === 'repeat' && el.form.querySelector('[data-time-label]')) {
+    const multi = el.value === 'multi';
+    el.form.querySelector('[data-time-label="start"]').textContent = multi ? 'Beginn (1. Tag)' : 'Beginn';
+    el.form.querySelector('[data-time-label="end"]').textContent = multi ? 'Ende (letzter Tag)' : 'Ende';
+  }
 });
 
 // Beim Tippen im Einkauf anzeigen, in welche Kategorie der Artikel kommt
