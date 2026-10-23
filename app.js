@@ -492,10 +492,9 @@ function viewHeute() {
     openReminders ? plural(openReminders, 'Erinnerung', 'Erinnerungen') : '',
     openTasks ? plural(openTasks, 'Aufgabe', 'Aufgaben') : '',
   ].filter(Boolean);
-  const nothing = !events.length && !reminders.length && !allTasks.length;
 
   return `
-    <p class="day-summary">${summary.length ? summary.join(' · ') : isToday ? 'Ein ruhiger Tag – nichts geplant.' : 'Nichts geplant.'}</p>
+    ${summary.length ? `<p class="day-summary">${summary.join(' · ')}</p>` : ''}
     <div class="family-strip">
       ${[...members()]
         .sort((a, b) => (b.id === state.me) - (a.id === state.me)) // ich zuerst
@@ -515,7 +514,6 @@ function viewHeute() {
         : ''
     }
     ${events.length ? `<section><h2>Termine</h2>${events.map(eventCard).join('')}</section>` : ''}
-    ${nothing ? '<div class="calm card">☀️ Keine Termine und nichts zu erledigen.</div>' : ''}
 
     <section>
       <h2>Essen</h2>
@@ -544,7 +542,7 @@ function viewHeute() {
           ? '<p class="empty">Unter „Einstellungen“ auswählen, wer du bist.</p>'
           : tasks.length
             ? `<ul class="tasks card">${tasks.map(taskRow).join('')}</ul>`
-            : '<p class="empty">Für dich ist heute nichts offen. 🎉</p>'
+            : '<p class="empty">Keine eigenen Aufgaben.</p>'
       }
     </section>` : ''}`;
 }
@@ -589,7 +587,7 @@ function viewPerson() {
               </section>`
             )
             .join('')
-        : '<p class="empty center">In den nächsten 14 Tagen steht nichts an. 🎉</p>'
+        : '<p class="empty center">Keine Einträge.</p>'
     }`;
 }
 
