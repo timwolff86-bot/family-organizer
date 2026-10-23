@@ -1209,14 +1209,18 @@ function itemForm(item) {
       <label>Menge<input name="amount" value="${esc(item.amount || '')}" placeholder="z. B. 2 kg, 6 Stück" /></label>
       <label>Notiz<input name="note" value="${esc(item.note || '')}" placeholder="z. B. Bio" /></label>
     </div>
-    <div class="field-label">Kategorie</div>
+    <details class="more-opts cat-opts">
+      <summary>Kategorie ändern <span class="muted small">(${esc(categoryOf(current).icon + ' ' + categoryOf(current).label)})</span></summary>
+      <div class="more-body">
     <div class="cat-grid">
       ${CATEGORIES.map(
         (c) => `<label><input type="radio" name="category" value="${c.id}" ${c.id === current ? 'checked' : ''}/>
           <span><b>${c.icon}</b>${esc(c.label)}</span></label>`
       ).join('')}
     </div>
-    <p class="muted small">Die App merkt sich die Kategorie für das nächste Mal.</p>`;
+        <p class="muted small">Die App merkt sich die Kategorie für das nächste Mal.</p>
+      </div>
+    </details>`;
   openSheet(
     'Artikel',
     inner,
