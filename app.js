@@ -1756,6 +1756,8 @@ function addChooser() {
 const actions = {
   tab: (d) => {
     state.view = d.tab;
+    // "Heute" unten führt immer zum heutigen Tag zurück
+    if (d.tab === 'heute') state.date = D.todayKey();
     if (d.tab === 'woche') state.weekStart = D.startOfWeek(state.date);
     window.scrollTo(0, 0);
     render();
