@@ -1680,3 +1680,109 @@ body {
 .theme-seg button {
   flex: 1;
 }
+
+/* ================= Paket B ================= */
+
+/* "Mehr Optionen" in Formularen */
+.more-opts {
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.more-opts summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 15px;
+  padding: 8px 0;
+}
+.more-opts summary::-webkit-details-marker {
+  display: none;
+}
+.more-opts summary::before {
+  content: '＋ ';
+}
+.more-opts[open] summary::before {
+  content: '－ ';
+}
+.more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+.more-body > label,
+.more-body .row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.more-body label.check-line {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Meldung mit "Rückgängig" */
+#toast {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+#toast.has-action {
+  pointer-events: auto;
+}
+.toast-btn {
+  color: var(--accent);
+  font-weight: 800;
+  white-space: nowrap;
+}
+:root:not([data-theme='dark']) .toast-btn {
+  color: #8fd9cf;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .toast-btn {
+    color: var(--accent-soft);
+    color: #1f5c56;
+  }
+}
+:root[data-theme='dark'] .toast-btn {
+  color: #1f5c56;
+}
+
+/* Einstellungen: alle Einträge eingeklappt */
+.all-entries {
+  margin: 18px 0 22px;
+}
+.all-entries > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+.all-entries > summary::-webkit-details-marker {
+  display: none;
+}
+.all-entries[open] > summary {
+  margin-bottom: 4px;
+}
+.tabbar button {
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+#toast.has-action {
+  min-width: min(320px, calc(100% - 32px));
+  justify-content: space-between;
+}

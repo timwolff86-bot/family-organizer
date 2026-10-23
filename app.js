@@ -198,12 +198,55 @@ function openCropper(file, outSize = 160) {
 }
 
 let toastTimer;
-function toast(msg) {
+// Kurze Meldung unten. Mit action: Knopf (z. B. "Rückgängig"), bleibt dann etwas länger stehen.
+function toast(msg, action = null) {
   const el = $('#toast');
-  el.textContent = msg;
+  el.innerHTML = `<span>${esc(msg)}</span>${action ? `<button type="button" class="toast-btn">${esc(action.label)}</button>` : ''}`;
+  el.classList.toggle('has-action', !!action);
   el.classList.add('show');
+  if (action) {
+    el.querySelector('.toast-btn').onclick = () => {
+      el.classList.remove('show');
+      action.run();
+    };
+  }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  toastTimer = setTimeout(() => el.classList.remove('show'), action ? 6000 : 2600);
+}
+
+// Löschen mit "Rückgängig": vorher alles merken, was mit verschwindet
+async function removeWithUndo(table, ids, label) {
+  ids = [].concat(ids);
+  const snapshot = [[table, state.data[table].filter((r) => ids.includes(r.id))]];
+  if (table === 'events') snapshot.push(['event_occurrences', state.data.event_occurrences.filter((o) => ids.includes(o.event_id))]);
+  if (table === 'tasks') snapshot.push(['task_completions', state.data.task_completions.filter((c) => ids.includes(c.task_id))]);
+  if (table === 'recipes') snapshot.push(['meals', state.data.meals.filter((m) => ids.includes(m.recipe_id))]);
+  const copy = snapshot.map(([t, rows]) => [t, rows.map((r) => ({ ...r }))]);
+
+  state.data[table] = state.data[table].filter((r) => !ids.includes(r.id));
+  render();
+  const removal = (async () => {
+    for (const id of ids) await store.remove(table, id);
+  })();
+  toast(label, {
+    label: 'Rückgängig',
+    run: async () => {
+      try {
+        await removal.catch(() => {}); // erst fertig löschen, dann wiederherstellen
+        for (const [t, rows] of copy) if (rows.length) await store.upsertMany(t, rows, t === 'meals' ? 'date' : 'id');
+      } catch (e) {
+        console.error(e);
+        toast('Wiederherstellen hat nicht geklappt.');
+      }
+      reload();
+    },
+  });
+  try {
+    await removal;
+    await reload();
+  } catch (e) {
+    fail(e);
+  }
 }
 
 function fail(err) {
@@ -488,7 +531,7 @@ function viewHeute() {
       </div>
       ${
         state.taskFilter === 'meine' && !meMember()
-          ? '<p class="empty">Unter „Mehr“ auswählen, wer du bist.</p>'
+          ? '<p class="empty">Unter „Einstellungen“ auswählen, wer du bist.</p>'
           : tasks.length
             ? `<ul class="tasks card">${tasks.map(taskRow).join('')}</ul>`
             : '<p class="empty">Für dich ist heute nichts offen. 🎉</p>'
@@ -769,22 +812,23 @@ function recipeForm(r) {
   const isNew = !r;
   r ||= { category: 'sonstiges', servings: 4, ingredients: [], own: true };
   const inner = `
-    <div class="row">
-      <label class="emoji-field">Symbol<input name="emoji" value="${esc(r.emoji || '')}" placeholder="${recipeCategory(r.category).emoji}" maxlength="4" /></label>
-      <label class="grow">Name des Gerichts<input name="title" value="${esc(r.title || '')}" required placeholder="z. B. Omas Gulasch" /></label>
-    </div>
+    <label>Name des Gerichts<input name="title" value="${esc(r.title || '')}" required placeholder="z. B. Omas Gulasch" /></label>
     <label>Kategorie<select name="category">${RECIPE_CATEGORIES.map(
       (c) => `<option value="${c.id}" ${c.id === r.category ? 'selected' : ''}>${c.emoji} ${c.label}</option>`
     ).join('')}</select></label>
-    <div class="row">
-      <label>Dauer (Min.)<input type="number" name="minutes" min="0" inputmode="numeric" value="${esc(r.minutes ?? '')}" /></label>
-      <label>Personen<input type="number" name="servings" min="1" inputmode="numeric" value="${esc(r.servings ?? '')}" /></label>
-    </div>
     <label>Zutaten <span class="muted small">– eine pro Zeile, Menge vorne (z. B. „500 g Hackfleisch“)</span>
       <textarea name="ingredients" rows="8">${esc((r.ingredients || []).join('\n'))}</textarea></label>
     <label>Zubereitung <span class="muted small">– ein Schritt pro Zeile</span>
       <textarea name="steps" rows="6">${esc(r.steps || '')}</textarea></label>
-    <label class="check-line"><input type="checkbox" name="favorite" ${r.favorite ? 'checked' : ''}/> ⭐ Favorit</label>`;
+    ${moreOptions(
+      `<div class="row">
+        <label class="emoji-field">Symbol<input name="emoji" value="${esc(r.emoji || '')}" placeholder="${recipeCategory(r.category).emoji}" maxlength="4" /></label>
+        <label>Dauer (Min.)<input type="number" name="minutes" min="0" inputmode="numeric" value="${esc(r.minutes ?? '')}" /></label>
+        <label>Personen<input type="number" name="servings" min="1" inputmode="numeric" value="${esc(r.servings ?? '')}" /></label>
+      </div>
+      <label class="check-line"><input type="checkbox" name="favorite" ${r.favorite ? 'checked' : ''}/> ⭐ Favorit</label>`,
+      !isNew && r.own
+    )}`;
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-recipe" data-id="${r.id}">Gericht löschen</button>`;
   openSheet(
     isNew ? 'Neues Gericht' : 'Gericht bearbeiten',
@@ -976,7 +1020,7 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>Familie &amp; Helfer</h2><button class="link" data-action="new-member">+ Person</button></div>
+      <div class="section-head"><h2>Familie</h2><button class="link" data-action="new-member">+ Person</button></div>
       <ul class="card list">
         ${ms
           .map(
@@ -986,6 +1030,42 @@ function viewMehr() {
             </button></li>`
           )
           .join('')}
+      </ul>
+    </section>
+
+    <section>
+      <h2>Darstellung</h2>
+      <div class="card pad">
+        <div class="seg wide theme-seg">
+          ${[
+            ['auto', 'Automatisch'],
+            ['light', '☀️ Hell'],
+            ['dark', '🌙 Dunkel'],
+          ]
+            .map(([k, l]) => `<button class="${(lsGet('fo-theme') || 'auto') === k ? 'on' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`)
+            .join('')}
+        </div>
+        <p class="muted small">„Automatisch“ folgt der Einstellung des Handys.</p>
+      </div>
+    </section>
+
+    <details class="all-entries">
+      <summary>Alle Einträge verwalten <span class="muted small">Erinnerungen, Termine, Aufgaben</span></summary>
+    <section>
+      <div class="section-head"><h2>Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
+      <ul class="card list">
+        ${
+          reminders.length
+            ? reminders
+                .map(
+                  (t) => `<li><button data-action="edit-task" data-id="${t.id}">
+                    <span class="grow">🔔 ${esc(t.title)} ${t.weekdays?.length ? '<span class="muted small">↻</span>' : ''} ${chips(peopleOf(t))}</span>
+                    <span class="muted small">${esc(when(t))}${t.due_time ? ` · ${D.hm(t.due_time)}` : ''}</span>
+                  </button></li>`
+                )
+                .join('')
+            : '<li class="empty">Keine Erinnerungen</li>'
+        }
       </ul>
     </section>
 
@@ -1008,24 +1088,6 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
-      <ul class="card list">
-        ${
-          reminders.length
-            ? reminders
-                .map(
-                  (t) => `<li><button data-action="edit-task" data-id="${t.id}">
-                    <span class="grow">🔔 ${esc(t.title)} ${t.weekdays?.length ? '<span class="muted small">↻</span>' : ''} ${chips(peopleOf(t))}</span>
-                    <span class="muted small">${esc(when(t))}${t.due_time ? ` · ${D.hm(t.due_time)}` : ''}</span>
-                  </button></li>`
-                )
-                .join('')
-            : '<li class="empty">Keine Erinnerungen</li>'
-        }
-      </ul>
-    </section>
-
-    <section>
       <div class="section-head"><h2>Offene &amp; wiederkehrende Aufgaben</h2><button class="link" data-action="new-task">+ Aufgabe</button></div>
       <ul class="card list">
         ${
@@ -1043,21 +1105,7 @@ function viewMehr() {
       </ul>
     </section>
 
-    <section>
-      <h2>Darstellung</h2>
-      <div class="card pad">
-        <div class="seg wide theme-seg">
-          ${[
-            ['auto', 'Automatisch'],
-            ['light', '☀️ Hell'],
-            ['dark', '🌙 Dunkel'],
-          ]
-            .map(([k, l]) => `<button class="${(lsGet('fo-theme') || 'auto') === k ? 'on' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`)
-            .join('')}
-        </div>
-        <p class="muted small">„Automatisch“ folgt der Einstellung des Handys.</p>
-      </div>
-    </section>
+    </details>
 
     <section>
       <h2>App</h2>
@@ -1113,7 +1161,7 @@ function header() {
         <button class="link" data-action="edit-member" data-id="${state.personId}">Bearbeiten</button>
       </header>`;
   }
-  const titles = { einkauf: 'Einkauf', mehr: 'Mehr', kochbuch: 'Kochbuch' };
+  const titles = { einkauf: 'Einkauf', mehr: 'Einstellungen', kochbuch: 'Kochbuch' };
   return `<header class="top"><h1>${titles[state.view]}</h1></header>`;
 }
 
@@ -1160,7 +1208,7 @@ function tabbar() {
     ['woche', 'woche', 'Woche'],
     ['kochbuch', 'kochbuch', 'Kochbuch'],
     ['einkauf', 'einkauf', 'Einkauf'],
-    ['mehr', 'mehr', 'Mehr'],
+    ['mehr', 'mehr', 'Einstellungen'],
   ];
   return `<nav class="tabbar">${tabs
     .map(
@@ -1201,7 +1249,7 @@ function render() {
     ${header()}
     <main id="main" class="view-${state.view}">${views[state.view]()}</main>
     ${recipeList()}
-    ${state.view === 'heute' || state.view === 'woche' ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
+    ${['heute', 'woche', 'einkauf', 'kochbuch', 'person'].includes(state.view) ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
     ${tabbar()}`;
   window.scrollTo(0, scroll);
 }
@@ -1226,7 +1274,7 @@ function whoScreen() {
     <div class="center-screen">
       <div class="logo">👋</div>
       <h1>Wer bist du?</h1>
-      <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Mehr“ geändert werden.</p>
+      <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Einstellungen“ geändert werden.</p>
       <div class="who">
         ${(ms.length ? ms : members())
           .map((m) => `<button class="btn big" style="--c:${esc(m.color)}" data-action="set-me" data-id="${m.id}">${avatar(m)}${esc(m.name)}</button>`)
@@ -1331,8 +1379,11 @@ function eventForm(ev, day) {
       <label><span data-time-label="start">${multi ? 'Beginn (1. Tag)' : 'Beginn'}</span><input type="time" name="start_time" value="${esc(D.hm(ev.start_time))}" /></label>
       <label><span data-time-label="end">${multi ? 'Ende (letzter Tag)' : 'Ende'}</span><input type="time" name="end_time" value="${esc(D.hm(ev.end_time))}" /></label>
     </div>
-    <label>Wo? (optional)<input name="location" value="${esc(ev.location || '')}" /></label>
-    <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>`;
+    ${moreOptions(
+      `<label>Wo?<input name="location" value="${esc(ev.location || '')}" /></label>
+       <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>`,
+      ev.location || ev.notes
+    )}`;
 
   const extra = isNew
     ? ''
@@ -1384,6 +1435,10 @@ function eventForm(ev, day) {
 }
 
 
+// Selten gebrauchte Felder einklappen; offen, wenn schon etwas eingetragen ist
+const moreOptions = (inner, open) =>
+  `<details class="more-opts" ${open ? 'open' : ''}><summary>Mehr Optionen</summary><div class="more-body">${inner}</div></details>`;
+
 // Mehrfachauswahl von Personen ("für wen?")
 function peoplePicker(selected) {
   const ms = [...members()].sort((a, b) => (a.role === 'kind') - (b.role === 'kind'));
@@ -1413,7 +1468,7 @@ function reminderForm(t, day) {
     </div>
     <div class="field-label">Für wen? <span class="muted small">(mehrere möglich – jede/r kann abhaken)</span></div>
     ${peoplePicker(peopleOf(t))}
-    <label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`;
+    ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Erinnerung löschen</button>`;
   openSheet(
     isNew ? 'Neue Erinnerung' : 'Erinnerung bearbeiten',
@@ -1458,7 +1513,7 @@ function taskForm(t, day) {
     ])}
     <label data-show="date">Datum<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" /></label>
     <div data-show="weekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
-    <label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`;
+    ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
 
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Aufgabe löschen</button>`;
 
@@ -1532,8 +1587,8 @@ function addChooser() {
   $('#sheet-root').innerHTML = `
     <div class="backdrop" data-action="close-sheet"></div>
     <div class="sheet chooser">
-      <button class="btn big" data-action="new-event">📅 Termin</button>
       <button class="btn big" data-action="new-reminder">🔔 Erinnerung</button>
+      <button class="btn big" data-action="new-event">📅 Termin</button>
       <button class="btn big" data-action="new-task">☑️ Aufgabe</button>
       <button class="btn ghost wide" data-action="close-sheet">Abbrechen</button>
     </div>`;
@@ -1631,9 +1686,9 @@ const actions = {
   },
   'edit-recipe': (d) => recipeForm(state.data.recipes.find((x) => x.id === d.id)),
   'delete-recipe': (d) => {
-    if (!confirm('Gericht aus dem Kochbuch löschen?')) return;
+    const r = state.data.recipes.find((x) => x.id === d.id);
     closeSheet();
-    del('recipes', d.id);
+    removeWithUndo('recipes', d.id, `„${r?.title || 'Gericht'}“ gelöscht`);
   },
   'toggle-fav': (d) => {
     const r = state.data.recipes.find((x) => x.id === d.id);
@@ -1678,7 +1733,15 @@ const actions = {
   'new-event': () => eventForm(null, state.date),
   'new-task': () => taskForm(null, state.date),
   'new-member': () => memberForm(null),
-  add: () => addChooser(),
+  add: () => {
+    if (state.view === 'einkauf') {
+      const input = $('#main form.add-item input[name="name"]');
+      input?.scrollIntoView({ block: 'center' });
+      return input?.focus();
+    }
+    if (state.view === 'kochbuch') return recipeForm(null);
+    addChooser();
+  },
   'close-sheet': () => closeSheet(),
   'toggle-cancel': (d) => {
     const o = eventsOn(d.day).find((x) => x.ev.id === d.id);
@@ -1687,15 +1750,13 @@ const actions = {
   },
   'delete-event': (d) => {
     const ev = state.data.events.find((e) => e.id === d.id);
-    if (!confirm(ev?.weekdays?.length ? 'Die ganze Serie löschen?' : 'Termin löschen?')) return;
     closeSheet();
-    del('events', d.id);
+    removeWithUndo('events', d.id, ev?.weekdays?.length ? 'Serie gelöscht' : 'Termin gelöscht');
   },
   'delete-task': (d) => {
     const t = state.data.tasks.find((x) => x.id === d.id);
-    if (!confirm(t && isReminder(t) ? 'Erinnerung löschen?' : 'Aufgabe löschen?')) return;
     closeSheet();
-    del('tasks', d.id);
+    removeWithUndo('tasks', d.id, t && isReminder(t) ? 'Erinnerung gelöscht' : 'Aufgabe gelöscht');
   },
   'delete-member': (d) => {
     if (!confirm('Person entfernen? Termine und Aufgaben bleiben erhalten.')) return;
@@ -1716,8 +1777,9 @@ const actions = {
     if (i) save('shopping_items', { id: i.id, done: !i.done });
   },
   'delete-item': (d) => {
+    const i = state.data.shopping_items.find((x) => x.id === d.id);
     closeSheet();
-    del('shopping_items', d.id);
+    removeWithUndo('shopping_items', d.id, `${i?.name || 'Artikel'} entfernt`);
   },
   'edit-item': (d) => {
     const i = state.data.shopping_items.find((x) => x.id === d.id);
@@ -1727,15 +1789,9 @@ const actions = {
     addItem(d.name);
     toast(`${d.name} hinzugefügt`);
   },
-  'clear-done': async () => {
-    const done = state.data.shopping_items.filter((i) => i.done);
-    state.data.shopping_items = state.data.shopping_items.filter((i) => !i.done);
-    render();
-    try {
-      for (const i of done) await store.remove('shopping_items', i.id);
-    } catch (e) {
-      fail(e);
-    }
+  'clear-done': () => {
+    const done = state.data.shopping_items.filter((i) => i.done).map((i) => i.id);
+    removeWithUndo('shopping_items', done, `${done.length} erledigte entfernt`);
   },
   'copy-list': async () => {
     const open = state.data.shopping_items.filter((i) => !i.done);
