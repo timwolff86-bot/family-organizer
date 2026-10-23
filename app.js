@@ -55,24 +55,131 @@ function avatar(m, cls = '') {
   return `<span class="av av-initial ${cls}" style="--c:${esc(m?.color || '#888')}">${esc((m?.name || '?').trim().charAt(0).toUpperCase())}</span>`;
 }
 
-// Foto quadratisch zuschneiden und verkleinern → kleines JPEG als Text (ca. 10 KB)
-function resizeImage(file, size = 160) {
+// Zuschnitt: Bild im runden Ausschnitt verschieben (ein Finger) und zoomen
+// (zwei Finger oder Regler). Ergebnis: 160×160 JPEG als Text (ca. 5–10 KB),
+// oder null bei Abbrechen.
+function openCropper(file, outSize = 160) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      canvas
-        .getContext('2d')
-        .drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
-    };
     img.onerror = () => {
       URL.revokeObjectURL(url);
       reject(new Error('Bild konnte nicht gelesen werden'));
+    };
+    img.onload = () => {
+      const V = Math.min(window.innerWidth - 48, 320); // Größe des Ausschnitts in px
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const base = V / Math.min(w, h); // so groß, dass der Ausschnitt gefüllt ist
+      const MAX = 5;
+      let zoom = 1;
+      let x = (V - w * base) / 2;
+      let y = (V - h * base) / 2;
+
+      const root = document.createElement('div');
+      root.className = 'cropper';
+      root.innerHTML = `
+        <div class="crop-box">
+          <strong>Bild zuschneiden</strong>
+          <div class="crop-view" style="width:${V}px;height:${V}px">
+            <img src="${url}" alt="" draggable="false" />
+            <div class="crop-ring"></div>
+          </div>
+          <p class="muted small">Verschieben mit dem Finger, zoomen mit zwei Fingern oder dem Regler.</p>
+          <input type="range" class="crop-zoom" min="1" max="${MAX}" step="0.01" value="1" aria-label="Zoom" />
+          <div class="crop-buttons">
+            <button type="button" class="btn ghost" data-crop="cancel">Abbrechen</button>
+            <button type="button" class="btn primary" data-crop="ok">Übernehmen</button>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+      const view = root.querySelector('.crop-view');
+      const pic = root.querySelector('img');
+      const slider = root.querySelector('.crop-zoom');
+
+      const clamp = () => {
+        const s = base * zoom;
+        x = Math.min(0, Math.max(V - w * s, x));
+        y = Math.min(0, Math.max(V - h * s, y));
+      };
+      const draw = () => {
+        clamp();
+        const s = base * zoom;
+        pic.style.width = `${w * s}px`;
+        pic.style.height = `${h * s}px`;
+        pic.style.transform = `translate(${x}px, ${y}px)`;
+        slider.value = zoom;
+      };
+      // Zoomen um einen Punkt (cx, cy) im Ausschnitt, damit dieser Punkt stehen bleibt
+      const zoomTo = (z, cx = V / 2, cy = V / 2) => {
+        z = Math.min(MAX, Math.max(1, z));
+        const k = z / zoom;
+        x = cx - (cx - x) * k;
+        y = cy - (cy - y) * k;
+        zoom = z;
+        draw();
+      };
+      draw();
+
+      const pointers = new Map();
+      let pinch = null;
+      const local = (e) => {
+        const r = view.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+      };
+      view.addEventListener('pointerdown', (e) => {
+        view.setPointerCapture(e.pointerId);
+        pointers.set(e.pointerId, local(e));
+        if (pointers.size === 2) {
+          const [a, b] = [...pointers.values()];
+          pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom };
+        }
+      });
+      view.addEventListener('pointermove', (e) => {
+        if (!pointers.has(e.pointerId)) return;
+        const prev = pointers.get(e.pointerId);
+        const now = local(e);
+        pointers.set(e.pointerId, now);
+        if (pointers.size === 1) {
+          x += now.x - prev.x;
+          y += now.y - prev.y;
+          draw();
+        } else if (pointers.size === 2 && pinch) {
+          const [a, b] = [...pointers.values()];
+          const dist = Math.hypot(a.x - b.x, a.y - b.y);
+          zoomTo(pinch.zoom * (dist / pinch.dist), (a.x + b.x) / 2, (a.y + b.y) / 2);
+        }
+      });
+      const up = (e) => {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) pinch = null;
+      };
+      view.addEventListener('pointerup', up);
+      view.addEventListener('pointercancel', up);
+      view.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          const p = local(e);
+          zoomTo(zoom * (e.deltaY < 0 ? 1.1 : 0.9), p.x, p.y);
+        },
+        { passive: false }
+      );
+      slider.addEventListener('input', () => zoomTo(Number(slider.value)));
+
+      const finish = (result) => {
+        root.remove();
+        URL.revokeObjectURL(url);
+        resolve(result);
+      };
+      root.querySelector('[data-crop="cancel"]').addEventListener('click', () => finish(null));
+      root.querySelector('[data-crop="ok"]').addEventListener('click', () => {
+        const s = base * zoom;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = outSize;
+        canvas.getContext('2d').drawImage(img, -x / s, -y / s, V / s, V / s, 0, 0, outSize, outSize);
+        finish(canvas.toDataURL('image/jpeg', 0.85));
+      });
     };
     img.src = url;
   });
@@ -1253,7 +1360,9 @@ document.addEventListener('change', async (e) => {
   const el = e.target;
   if (el.id === 'avatar-file' && el.files?.[0]) {
     try {
-      const data = await resizeImage(el.files[0]);
+      const data = await openCropper(el.files[0]);
+      el.value = ''; // gleiches Bild nochmal wählbar
+      if (!data) return;
       const v = $('#avatar-value');
       v.value = data;
       v.dataset.changed = '1';

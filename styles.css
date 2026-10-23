@@ -1113,3 +1113,69 @@ section {
 .avatar-actions .btn {
   cursor: pointer;
 }
+
+/* Bild zuschneiden */
+.cropper {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.75);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.crop-box {
+  background: var(--bg);
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+}
+.crop-box p {
+  margin: 0;
+  text-align: center;
+}
+.crop-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #000;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.crop-view img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.crop-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+.crop-zoom {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+}
+.crop-buttons {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+.crop-buttons .btn {
+  flex: 1;
+}
