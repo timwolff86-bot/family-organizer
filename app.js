@@ -24,7 +24,7 @@ const state = {
   data: null,
   session: null,
   me: lsGet('fo-me'),
-  taskFilter: lsGet('fo-filter') || 'alle', // alle | meine | sofa
+  taskFilter: lsGet('fo-filter') === 'meine' ? 'meine' : 'alle', // alle | meine
   hiddenAt: null,
   pendingRender: false,
 };
@@ -239,7 +239,6 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
   }
   let list = out;
   if (filter && state.taskFilter === 'meine') list = list.filter((x) => peopleOf(x.t).includes(state.me));
-  if (filter && state.taskFilter === 'sofa') list = list.filter((x) => x.t.sofa);
   return list.sort(
     (a, b) =>
       a.done - b.done ||
@@ -264,7 +263,7 @@ function toggleTask(taskId, day) {
 
 // Erinnerung, deren Uhrzeit heute schon vorbei ist
 function isLate(x) {
-  if (x.done || !x.t.due_time || x.t.due_date !== D.todayKey()) return false;
+  if (x.done || !x.t.due_time || x.day !== D.todayKey() || x.overdue) return false;
   const now = new Date();
   return D.hm(x.t.due_time) <= `${D.pad(now.getHours())}:${D.pad(now.getMinutes())}`;
 }
@@ -276,7 +275,6 @@ function taskRow(x) {
     t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">🕑 ${D.hm(t.due_time)}</span>` : '',
     x.overdue ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
     x.recurring ? '<span class="muted small">↻</span>' : '',
-    t.sofa ? '<span class="tag sofa" title="Im Sitzen machbar">🛋️</span>' : '',
   ].join('');
   return `
     <li class="task ${x.done ? 'done' : ''}">
@@ -309,7 +307,6 @@ function viewHeute() {
   const filters = [
     ['alle', 'Alle'],
     ['meine', meMember() ? `Meine` : 'Meine'],
-    ['sofa', '🛋️ Sofa'],
   ];
 
   return `
@@ -353,7 +350,7 @@ function viewHeute() {
           ? '<p class="empty">Unter „Mehr“ auswählen, wer du bist.</p>'
           : tasks.length
             ? `<ul class="tasks card">${tasks.map(taskRow).join('')}</ul>`
-            : `<p class="empty">${state.taskFilter === 'sofa' ? 'Keine Sofa-Aufgaben offen.' : 'Nichts zu tun. 🎉'}</p>`
+            : '<p class="empty">Nichts zu tun. 🎉</p>'
       }
     </section>`;
 }
@@ -541,8 +538,13 @@ function viewMehr() {
     .sort((a, b) => !!b.weekdays?.length - !!a.weekdays?.length || (a.date || '').localeCompare(b.date || '') || a.title.localeCompare(b.title));
   const tasks = state.data.tasks.filter((t) => !isReminder(t) && (t.weekdays?.length || !t.done_at));
   const reminders = state.data.tasks
-    .filter((t) => isReminder(t) && !t.done_at)
-    .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || '') || (a.due_time || '').localeCompare(b.due_time || ''));
+    .filter((t) => isReminder(t) && (t.weekdays?.length || !t.done_at))
+    .sort(
+      (a, b) =>
+        !!b.weekdays?.length - !!a.weekdays?.length ||
+        (a.due_date || '').localeCompare(b.due_date || '') ||
+        (a.due_time || '').localeCompare(b.due_time || '')
+    );
 
   const when = (x) =>
     x.weekdays?.length
@@ -597,14 +599,14 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>Offene Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
+      <div class="section-head"><h2>Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
       <ul class="card list">
         ${
           reminders.length
             ? reminders
                 .map(
                   (t) => `<li><button data-action="edit-task" data-id="${t.id}">
-                    <span class="grow">🔔 ${esc(t.title)} ${chips(peopleOf(t))}</span>
+                    <span class="grow">🔔 ${esc(t.title)} ${t.weekdays?.length ? '<span class="muted small">↻</span>' : ''} ${chips(peopleOf(t))}</span>
                     <span class="muted small">${esc(when(t))}${t.due_time ? ` · ${D.hm(t.due_time)}` : ''}</span>
                   </button></li>`
                 )
@@ -622,7 +624,7 @@ function viewMehr() {
             ? tasks
                 .map(
                   (t) => `<li><button data-action="edit-task" data-id="${t.id}">
-                    <span class="grow">${esc(t.title)} ${t.sofa ? '🛋️' : ''} ${chips(peopleOf(t))}</span>
+                    <span class="grow">${esc(t.title)} ${chips(peopleOf(t))}</span>
                     <span class="muted small">${esc(when(t))}</span>
                   </button></li>`
                 )
@@ -792,7 +794,12 @@ const memberOptions = (selected, { filter = () => true, empty = '– niemand –
 function weekdayPicker(selected = []) {
   return `<div class="weekdays">${D.WD_SHORT.map(
     (l, i) => `<label><input type="checkbox" name="wd" value="${i + 1}" ${selected.includes(i + 1) ? 'checked' : ''}/><span>${l}</span></label>`
-  ).join('')}</div>`;
+  ).join('')}</div>
+  <div class="wd-presets">
+    <button type="button" class="link" data-action="wd-preset" data-days="1,2,3,4,5">Mo–Fr</button>
+    <button type="button" class="link" data-action="wd-preset" data-days="6,7">Wochenende</button>
+    <button type="button" class="link" data-action="wd-preset" data-days="1,2,3,4,5,6,7">Jeden Tag</button>
+  </div>`;
 }
 
 function repeatSwitch(name, value, options) {
@@ -906,10 +913,16 @@ const readPeople = () => [...$('#sheet-root form').querySelectorAll('input[name=
 function reminderForm(t, day) {
   const isNew = !t;
   t ||= { due_date: day || state.date, assignees: state.me ? [state.me] : [] };
+  const weekly = t.weekdays?.length > 0;
   const inner = `
     <label>Woran erinnern?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Turnbeutel einpacken" required /></label>
+    ${repeatSwitch('repeat', weekly ? 'weekly' : 'once', [
+      ['once', 'Einmalig'],
+      ['weekly', 'Wiederkehrend'],
+    ])}
+    <div data-show="weekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
     <div class="row">
-      <label>Tag<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" required /></label>
+      <label data-show="once">Tag<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" /></label>
       <label>Uhrzeit (optional)<input type="time" name="due_time" value="${esc(D.hm(t.due_time))}" /></label>
     </div>
     <div class="field-label">Für wen? <span class="muted small">(mehrere möglich – jede/r kann abhaken)</span></div>
@@ -921,24 +934,27 @@ function reminderForm(t, day) {
     inner,
     (f) => {
       const people = readPeople();
+      const repeat = f.get('repeat');
+      const wds = readWeekdays($('#sheet-root form'));
+      if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
       save('tasks', {
         id: t.id,
         kind: 'erinnerung',
         title: f.get('title').trim(),
         assignees: people,
         assignee: people[0] || null,
-        due_date: f.get('due_date') || state.date,
+        due_date: repeat === 'once' ? f.get('due_date') || state.date : null,
+        weekdays: repeat === 'weekly' ? wds : null,
         due_time: f.get('due_time') || null,
-        weekdays: null,
-        sofa: false,
         notes: f.get('notes').trim() || null,
-        done_at: t.done_at ?? null,
-        done_by: t.done_by ?? null,
+        done_at: repeat === 'once' ? t.done_at ?? null : null,
+        done_by: repeat === 'once' ? t.done_by ?? null : null,
       });
       closeSheet();
     },
     extra
   );
+  updateRepeatVisibility($('#sheet-root form'));
 }
 
 function taskForm(t, day) {
@@ -956,7 +972,6 @@ function taskForm(t, day) {
     ])}
     <label data-show="date">Datum<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" /></label>
     <div data-show="weekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
-    <label class="check-line"><input type="checkbox" name="sofa" ${t.sofa ? 'checked' : ''}/> 🛋️ Im Sitzen machbar (Handy/Laptop/Telefon)</label>
     <label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`;
 
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Aufgabe löschen</button>`;
@@ -977,7 +992,6 @@ function taskForm(t, day) {
         assignee: people[0] || null,
         due_date: repeat === 'date' ? f.get('due_date') || state.date : null,
         weekdays: repeat === 'weekly' ? wds : null,
-        sofa: f.get('sofa') === 'on',
         notes: f.get('notes').trim() || null,
         done_at: t.done_at ?? null,
       });
@@ -1085,6 +1099,10 @@ const actions = {
     if (t) (isReminder(t) ? reminderForm : taskForm)(t);
   },
   'new-reminder': () => reminderForm(null, state.date),
+  'wd-preset': (d, el) => {
+    const days = d.days.split(',');
+    el.closest('form').querySelectorAll('input[name="wd"]').forEach((i) => (i.checked = days.includes(i.value)));
+  },
   'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
   'edit-member': (d) => memberForm(member(d.id)),
   'new-event': () => eventForm(null, state.date),
@@ -1178,7 +1196,7 @@ document.addEventListener('click', (e) => {
   const fn = actions[el.dataset.action];
   if (!fn) return;
   e.preventDefault();
-  fn(el.dataset);
+  fn(el.dataset, el);
 });
 
 document.addEventListener('change', (e) => {
@@ -1331,9 +1349,9 @@ async function seedIfEmpty() {
     ['events', { id: store.uuid(), title: 'Schlagzeug', member_id: ids.k12, weekdays: [1], needs_driver: true, notes: 'Uhrzeit eintragen' }],
     ['events', { id: store.uuid(), title: 'Pickleball', member_id: ids.k12, weekdays: [3, 5], needs_driver: true, notes: 'Uhrzeit eintragen' }],
     ['events', { id: store.uuid(), title: 'Klavier', member_id: ids.k9, weekdays: [5], needs_driver: true, notes: 'Uhrzeit und Kind prüfen' }],
-    ['tasks', { id: store.uuid(), title: 'Essensplan für nächste Woche machen', assignee: ids.papa, weekdays: [7], sofa: true }],
-    ['tasks', { id: store.uuid(), title: 'Rewe-Lieferung bestellen', assignee: ids.papa, weekdays: [7], sofa: true }],
-    ['tasks', { id: store.uuid(), title: 'Getränke bei Flaschenpost bestellen', assignee: ids.papa, sofa: true }]
+    ['tasks', { id: store.uuid(), title: 'Essensplan für nächste Woche machen', assignee: ids.papa, weekdays: [7] }],
+    ['tasks', { id: store.uuid(), title: 'Rewe-Lieferung bestellen', assignee: ids.papa, weekdays: [7] }],
+    ['tasks', { id: store.uuid(), title: 'Getränke bei Flaschenpost bestellen', assignee: ids.papa }]
   );
   for (const [table, row] of rows) {
     row.created_at = new Date().toISOString();
