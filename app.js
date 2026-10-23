@@ -1085,10 +1085,59 @@ function rememberProduct(name, category, { countUse = true } = {}) {
   );
 }
 
-function addItem(name, { countUse = true } = {}) {
+// "2 kg Äpfel" → { amount: '2 kg', name: 'Äpfel' }
+const AMOUNT_RE =
+  /^(\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+)?\s*(?:x|kg|g|gr|l|ml|el|tl|stk\.?|stück|pck\.?|packung(?:en)?|pkg|flaschen?|kisten?|kasten|dosen?|becher|bund|beutel|gläser|glas|tüten?|rollen?|scheiben?|prisen?|päckchen|zehen?|stangen?)?\.?)\s+(.+)$/i;
+function splitAmount(text) {
+  const m = String(text).trim().match(AMOUNT_RE);
+  return m ? { amount: m[1].trim(), name: m[2].trim() } : { amount: null, name: String(text).trim() };
+}
+
+function addItem(text, { countUse = true } = {}) {
+  const { name, amount } = splitAmount(text);
   const category = classify(name, state.data.products);
-  save('shopping_items', { name, category, done: false });
+  save('shopping_items', { name, category, done: false, ...(amount ? { amount } : {}) });
   if (countUse) rememberProduct(name, category);
+}
+
+// Vorschläge beim Tippen: Produkte aus dem Katalog, Treffer am Wortanfang zuerst
+function suggestions(text) {
+  const q = normalize(splitAmount(text).name);
+  if (q.length < 2) return [];
+  const open = new Set(state.data.shopping_items.filter((i) => !i.done).map((i) => normalize(i.name)));
+  const scored = [];
+  const seen = new Set();
+  for (const p of state.data.products) {
+    if (seen.has(p.key) || open.has(p.key)) continue;
+    const i = p.key.indexOf(q);
+    if (i < 0) continue;
+    seen.add(p.key);
+    const wordStart = i === 0 || p.key[i - 1] === ' ' || p.key[i - 1] === '-';
+    scored.push({ p, score: (i === 0 ? 0 : wordStart ? 1 : 2) * 1000 - (p.uses || 0) * 10 + p.key.length });
+  }
+  return scored
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 5)
+    .map((x) => x.p);
+}
+
+function renderSuggestions(text) {
+  const box = $('#suggest');
+  if (!box) return;
+  const list = suggestions(text);
+  const { amount, name } = splitAmount(text);
+  // "Sonstiges" nicht anzeigen, solange noch passende Vorschläge kommen (Wort halb getippt)
+  const unknown = classify(name, state.data.products) === 'sonstiges';
+  const hint = unknown && list.length ? '' : categoryHint(name);
+  const parts = [hint ? `→ ${esc(hint)}` : '', amount ? `Menge: ${esc(amount)}` : ''].filter(Boolean);
+  box.innerHTML =
+    (parts.length ? `<div class="cat-hint">${parts.join(' · ')}</div>` : '') +
+    list
+      .map(
+        (p) => `<button type="button" class="suggest-row" data-action="suggest-add" data-name="${esc(p.name)}">
+          <span>${categoryOf(p.category).icon}</span><span class="grow">${esc(p.name)}</span><span class="muted small">＋</span></button>`
+      )
+      .join('');
 }
 
 function categoryHint(name) {
@@ -1109,12 +1158,14 @@ function viewEinkauf() {
     return `
       <section>
         <h2 class="cat-head"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted small">${open || '✓'}</span></h2>
-        <ul class="card shop-list">
+        <ul class="card shop-list" data-longpress="item">
           ${list
             .map(
               (i) => `<li class="${i.done ? 'done' : ''}">
                 <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? '✓' : ''}</button>
-                <span class="name" data-action="toggle-item" data-id="${i.id}">${esc(i.name)}</span>
+                <span class="name" data-action="toggle-item" data-id="${i.id}">${esc(i.name)}${
+                  i.amount ? ` <span class="amount">${esc(i.amount)}</span>` : ''
+                }${i.note ? `<span class="item-note">${esc(i.note)}</span>` : ''}</span>
                 <button class="icon-btn" data-action="edit-item" data-id="${i.id}" aria-label="Kategorie ändern oder löschen">⋯</button>
               </li>`
             )
@@ -1123,28 +1174,27 @@ function viewEinkauf() {
       </section>`;
   }).join('');
 
-  const names = [...new Set(state.data.products.map((p) => p.name))].sort((a, b) => a.localeCompare(b));
   const anyOpen = items.some((i) => !i.done);
 
   return `
     ${state.data.missing?.includes('products') ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-2.sql in Supabase ausführen.</div>' : ''}
     <form class="card add-item" data-form="add-item">
-      <input name="name" list="product-list" placeholder="Was fehlt?" autocomplete="off" enterkeyhint="done" required />
+      <input name="name" placeholder="Was fehlt? z. B. 2 kg Äpfel" autocomplete="off" autocorrect="off" enterkeyhint="done" required />
       <button class="btn primary" type="submit" aria-label="Hinzufügen">+</button>
     </form>
-    <div class="cat-hint" id="cat-hint"></div>
-    <datalist id="product-list">${names.map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
+    <div class="suggest" id="suggest"></div>
+    ${groups || '<p class="empty">Die Liste ist leer.</p>'}
+    ${items.length ? '<p class="muted small center longpress-hint">Lange drücken: Menge oder Notiz ergänzen</p>' : ''}
     ${
       quick.length
-        ? `<div class="quick">${quick
+        ? `<section><h2>Häufig gekauft</h2><div class="quick">${quick
             .map(
               (q) => `<button class="quick-chip" data-action="quick-add" data-name="${esc(q.name)}">
                 ${categoryOf(q.category).icon} ${esc(q.name)}</button>`
             )
-            .join('')}</div>`
+            .join('')}</div></section>`
         : ''
     }
-    ${groups || '<p class="empty">Die Liste ist leer.</p>'}
     <div class="shop-actions">
       ${anyOpen ? '<button class="btn ghost" data-action="copy-list">📋 Liste kopieren</button>' : ''}
       ${items.some((i) => i.done) ? '<button class="btn ghost" data-action="clear-done">Erledigte entfernen</button>' : ''}
@@ -1155,6 +1205,11 @@ function itemForm(item) {
   const current = itemCategory(item);
   const inner = `
     <label>Name<input name="name" value="${esc(item.name)}" required /></label>
+    <div class="row">
+      <label>Menge<input name="amount" value="${esc(item.amount || '')}" placeholder="z. B. 2 kg, 6 Stück" /></label>
+      <label>Notiz<input name="note" value="${esc(item.note || '')}" placeholder="z. B. Bio" /></label>
+    </div>
+    <div class="field-label">Kategorie</div>
     <div class="cat-grid">
       ${CATEGORIES.map(
         (c) => `<label><input type="radio" name="category" value="${c.id}" ${c.id === current ? 'checked' : ''}/>
@@ -1168,7 +1223,13 @@ function itemForm(item) {
     (f) => {
       const name = f.get('name').trim();
       const category = f.get('category') || current;
-      save('shopping_items', { id: item.id, name, category });
+      save('shopping_items', {
+        id: item.id,
+        name,
+        category,
+        amount: f.get('amount').trim() || null,
+        note: f.get('note').trim() || null,
+      });
       rememberProduct(name, category, { countUse: false });
       closeSheet();
     },
@@ -2178,6 +2239,16 @@ const actions = {
     const i = state.data.shopping_items.find((x) => x.id === d.id);
     if (i) itemForm(i);
   },
+  'suggest-add': (d) => {
+    const input = $('#main form.add-item input[name="name"]');
+    const { amount } = splitAmount(input?.value || '');
+    if (input) {
+      input.value = '';
+      input.blur();
+    }
+    addItem(amount ? `${amount} ${d.name}` : d.name);
+    $('#main form.add-item input[name="name"]')?.focus();
+  },
   'quick-add': (d) => {
     addItem(d.name);
     toast(`${d.name} hinzugefügt`);
@@ -2188,7 +2259,9 @@ const actions = {
   },
   'copy-list': async () => {
     const open = state.data.shopping_items.filter((i) => !i.done);
-    const text = CATEGORIES.flatMap((c) => open.filter((i) => itemCategory(i) === c.id).map((i) => i.name)).join('\n');
+    const text = CATEGORIES.flatMap((c) =>
+      open.filter((i) => itemCategory(i) === c.id).map((i) => (i.amount ? `${i.name} (${i.amount})` : i.name))
+    ).join('\n');
     try {
       await navigator.clipboard.writeText(text);
       toast('Liste kopiert.');
@@ -2209,7 +2282,46 @@ function changeDay(n) {
   render();
 }
 
+// Langes Drücken auf einen Einkaufsartikel: Menge/Notiz bearbeiten
+let press = null;
+let swallowUntil = 0;
+document.addEventListener('pointerdown', (e) => {
+  // Vorschläge antippen, ohne dass das Eingabefeld vorher den Fokus verliert
+  if (e.target.closest('.suggest-row')) e.preventDefault();
+  const li = e.target.closest('[data-longpress="item"] li');
+  if (!li || e.target.closest('.icon-btn')) return;
+  const id = li.querySelector('[data-id]')?.dataset.id;
+  press = {
+    x: e.clientX,
+    y: e.clientY,
+    timer: setTimeout(() => {
+      press = null;
+      swallowUntil = Date.now() + 800; // den Tipp beim Loslassen ignorieren (sonst Abhaken/Schließen)
+      navigator.vibrate?.(15);
+      const item = state.data.shopping_items.find((x) => x.id === id);
+      if (item) itemForm(item);
+    }, 480),
+  };
+});
+const cancelPress = (e) => {
+  if (!press) return;
+  if (e.type === 'pointermove' && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 10) return;
+  clearTimeout(press.timer);
+  press = null;
+};
+document.addEventListener('pointermove', cancelPress);
+document.addEventListener('pointerup', cancelPress);
+document.addEventListener('pointercancel', cancelPress);
+document.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('[data-longpress="item"]')) e.preventDefault();
+});
+
 document.addEventListener('click', (e) => {
+  if (Date.now() < swallowUntil) {
+    swallowUntil = 0;
+    e.preventDefault();
+    return;
+  }
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const fn = actions[el.dataset.action];
@@ -2274,10 +2386,7 @@ document.addEventListener('input', (e) => {
     });
     return;
   }
-  if (el.form?.dataset.form === 'add-item' && el.name === 'name') {
-    const hint = $('#cat-hint');
-    if (hint) hint.textContent = categoryHint(el.value) ? `→ ${categoryHint(el.value)}` : '';
-  }
+  if (el.form?.dataset.form === 'add-item' && el.name === 'name') renderSuggestions(el.value);
 });
 
 // Essen speichern, sobald das Feld verlassen wird.

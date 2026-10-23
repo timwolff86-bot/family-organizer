@@ -147,6 +147,10 @@ alter table public.tasks add column if not exists repeat_from date;
 -- Ganztägig als eigenes Merkmal (Update 9)
 alter table public.events add column if not exists all_day boolean not null default false;
 
+-- Menge und Notiz im Einkauf (Update 10)
+alter table public.shopping_items add column if not exists amount text;
+alter table public.shopping_items add column if not exists note text;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$

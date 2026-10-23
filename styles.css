@@ -2147,3 +2147,62 @@ body {
   color: var(--muted);
   margin-bottom: 1px;
 }
+
+/* Einkauf: Vorschläge, Menge, langes Drücken */
+.suggest {
+  margin: 6px 0 0;
+}
+.suggest .cat-hint {
+  margin: 0 4px 6px;
+}
+.suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 15px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.suggest-row:active {
+  background: var(--accent-soft);
+}
+.shop-list li {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.shop-list .name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+}
+.amount {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 7px;
+  border-radius: 6px;
+}
+.item-note {
+  width: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+.done .amount {
+  background: transparent;
+  color: var(--muted);
+}
+.longpress-hint {
+  margin: 4px 0 0;
+}
+
+/* Platz unten, damit das ＋ nichts verdeckt */
+main {
+  padding-bottom: 84px;
+}
