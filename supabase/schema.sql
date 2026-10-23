@@ -126,6 +126,9 @@ create table if not exists public.recipes (
 );
 alter table public.meals add column if not exists recipe_id uuid references public.recipes (id) on delete set null;
 
+-- Persönliche Erinnerungen (Update 6)
+alter table public.tasks add column if not exists created_by uuid references public.members (id) on delete set null;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$

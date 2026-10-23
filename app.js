@@ -385,6 +385,11 @@ function eventCard(o) {
 
 const doneKey = (t) => (t.done_at ? D.toKey(new Date(t.done_at)) : null);
 const isReminder = (t) => t.kind === 'erinnerung';
+
+// Erinnerungen sind persönlich: sichtbar für die Personen, für die sie sind,
+// und für den, der sie angelegt hat. Ohne Personen = für alle.
+const canSeeReminder = (t) =>
+  !state.me || !peopleOf(t).length || peopleOf(t).includes(state.me) || t.created_by === state.me;
 // Eine oder mehrere Personen (ältere Einträge haben nur "assignee")
 const peopleOf = (t) => (t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []);
 const chips = (ids) => ids.map((id) => chip(id)).join('');
@@ -395,6 +400,7 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
   const out = [];
   for (const t of state.data.tasks) {
     if ((t.kind || 'aufgabe') !== kind) continue;
+    if (kind === 'erinnerung' && !canSeeReminder(t)) continue;
     if (t.weekdays?.length) {
       if (t.weekdays.includes(D.isoWeekday(day))) {
         const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
@@ -990,7 +996,7 @@ function viewMehr() {
     .sort((a, b) => !!b.weekdays?.length - !!a.weekdays?.length || (a.date || '').localeCompare(b.date || '') || a.title.localeCompare(b.title));
   const tasks = state.data.tasks.filter((t) => !isReminder(t) && (t.weekdays?.length || !t.done_at));
   const reminders = state.data.tasks
-    .filter((t) => isReminder(t) && (t.weekdays?.length || !t.done_at))
+    .filter((t) => isReminder(t) && canSeeReminder(t) && (t.weekdays?.length || !t.done_at))
     .sort(
       (a, b) =>
         !!b.weekdays?.length - !!a.weekdays?.length ||
@@ -1467,6 +1473,7 @@ function reminderForm(t, day) {
       <label>Uhrzeit (optional)<input type="time" name="due_time" value="${esc(D.hm(t.due_time))}" /></label>
     </div>
     <div class="field-label">Für wen? <span class="muted small">(mehrere möglich – jede/r kann abhaken)</span></div>
+    <p class="muted small hint">🔒 Sehen können die Erinnerung nur die ausgewählten Personen und du.</p>
     ${peoplePicker(peopleOf(t))}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Erinnerung löschen</button>`;
@@ -1480,6 +1487,7 @@ function reminderForm(t, day) {
       if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
       save('tasks', {
         id: t.id,
+        ...(isNew ? { created_by: state.me || null } : {}),
         kind: 'erinnerung',
         title: f.get('title').trim(),
         assignees: people,

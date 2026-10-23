@@ -101,6 +101,7 @@ const ON_DELETE = {
     ['event_occurrences', 'driver_back', 'null'],
     ['tasks', 'assignee', 'null'],
     ['tasks', 'done_by', 'null'],
+    ['tasks', 'created_by', 'null'],
   ],
   events: [['event_occurrences', 'event_id', 'cascade']],
   tasks: [['task_completions', 'task_id', 'cascade']],

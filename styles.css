@@ -1786,3 +1786,6 @@ body {
   min-width: min(320px, calc(100% - 32px));
   justify-content: space-between;
 }
+.sheet-body .hint {
+  margin: -6px 0 0;
+}
