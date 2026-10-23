@@ -908,8 +908,9 @@ function viewKochbuch() {
 function openPanel(title, inner, right = '') {
   $('#sheet-root').innerHTML = `
     <div class="backdrop" data-action="close-sheet"></div>
-    <div class="sheet" role="dialog" aria-label="${esc(title)}">
+    <div class="sheet full" role="dialog" aria-label="${esc(title)}">
       <div class="sheet-head">
+        <span class="grabber" aria-hidden="true"></span>
         <button type="button" class="link" data-action="close-sheet">Schließen</button>
         <strong>${esc(title)}</strong>
         <span>${right}</span>
@@ -1237,7 +1238,8 @@ function itemForm(item) {
       rememberProduct(name, category, { countUse: false });
       closeSheet();
     },
-    `<button type="button" class="btn danger wide" data-action="delete-item" data-id="${item.id}">Artikel löschen</button>`
+    `<button type="button" class="btn danger wide" data-action="delete-item" data-id="${item.id}">Artikel löschen</button>`,
+    { compact: true }
   );
 }
 
@@ -1580,12 +1582,14 @@ function whoScreen() {
 
 let sheetSubmit = null;
 
-function openSheet(title, inner, onSubmit, extraButtons = '') {
+// compact: kleines Fenster unten (z. B. Einkaufsartikel), sonst fast Vollbild
+function openSheet(title, inner, onSubmit, extraButtons = '', { compact = false } = {}) {
   sheetSubmit = onSubmit;
   $('#sheet-root').innerHTML = `
     <div class="backdrop" data-action="close-sheet"></div>
-    <form class="sheet" data-form="sheet" role="dialog" aria-label="${esc(title)}">
+    <form class="sheet ${compact ? 'compact' : 'full'}" data-form="sheet" role="dialog" aria-label="${esc(title)}">
       <div class="sheet-head">
+        <span class="grabber" aria-hidden="true"></span>
         <button type="button" class="link" data-action="close-sheet">Abbrechen</button>
         <strong>${esc(title)}</strong>
         <button type="submit" class="link strong">Sichern</button>
@@ -2005,7 +2009,8 @@ function memberForm(m) {
 function addChooser() {
   $('#sheet-root').innerHTML = `
     <div class="backdrop" data-action="close-sheet"></div>
-    <div class="sheet chooser">
+    <div class="sheet chooser compact">
+      <span class="grabber" aria-hidden="true"></span>
       <button class="btn big" data-action="new-reminder">🔔 Erinnerung</button>
       <button class="btn big" data-action="new-event">📅 Termin</button>
       <button class="btn big" data-action="new-task">☑️ Aufgabe</button>
@@ -2285,6 +2290,42 @@ function changeDay(n) {
   state.date = D.addDays(state.date, n);
   render();
 }
+
+// Fenster nach unten wegwischen (am Kopf bzw. Griff anfassen)
+let sheetDrag = null;
+document.addEventListener(
+  'touchstart',
+  (e) => {
+    const head = e.target.closest('.sheet-head, .sheet.chooser');
+    if (!head || e.target.closest('button, input, select, textarea')) return;
+    const sheet = head.closest('.sheet');
+    if (sheet.scrollTop > 0) return;
+    sheetDrag = { sheet, y: e.touches[0].clientY, dy: 0 };
+  },
+  { passive: true }
+);
+document.addEventListener(
+  'touchmove',
+  (e) => {
+    if (!sheetDrag) return;
+    sheetDrag.dy = Math.max(0, e.touches[0].clientY - sheetDrag.y);
+    sheetDrag.sheet.style.transition = 'none';
+    sheetDrag.sheet.style.transform = `translateY(${sheetDrag.dy}px)`;
+  },
+  { passive: true }
+);
+document.addEventListener('touchend', () => {
+  if (!sheetDrag) return;
+  const { sheet, dy } = sheetDrag;
+  sheetDrag = null;
+  sheet.style.transition = 'transform .2s ease-out';
+  if (dy > 90) {
+    sheet.style.transform = 'translateY(100%)';
+    setTimeout(closeSheet, 180);
+  } else {
+    sheet.style.transform = '';
+  }
+});
 
 // Langes Drücken auf einen Einkaufsartikel: Menge/Notiz bearbeiten
 let press = null;
