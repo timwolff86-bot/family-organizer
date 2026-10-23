@@ -67,7 +67,8 @@ function fail(err) {
 /* ================= Daten ändern ================= */
 
 // Sofort lokal übernehmen, dann im Hintergrund speichern.
-async function save(table, row, conflict = 'id') {
+// quiet: nicht sofort neu zeichnen (z. B. wenn der Fokus gerade ins nächste Feld springt)
+async function save(table, row, conflict = 'id', { quiet = false } = {}) {
   const list = state.data[table];
   const cols = conflict.split(',');
   if (!row.id && conflict === 'id') row.id = store.uuid();
@@ -79,7 +80,8 @@ async function save(table, row, conflict = 'id') {
     row = { id: store.uuid(), created_at: new Date().toISOString(), ...row };
     list.push(row);
   }
-  render();
+  if (quiet) setTimeout(render, 0); // render() wartet selbst, solange jemand tippt
+  else render();
   try {
     await store.upsert(table, row, conflict);
   } catch (e) {
@@ -127,13 +129,25 @@ function eventsOn(day) {
       weekly,
       driver_to: occ ? occ.driver_to : ev.driver_to,
       driver_back: occ ? occ.driver_back : ev.driver_back,
+      skip_to: !!(occ ? occ.skip_to : ev.skip_to),
+      skip_back: !!(occ ? occ.skip_back : ev.skip_back),
       cancelled: occ?.cancelled || false,
     });
   }
   return out.sort((a, b) => (a.ev.start_time || '99').localeCompare(b.ev.start_time || '99') || a.ev.title.localeCompare(b.ev.title));
 }
 
-const missingDriver = (o) => o.ev.needs_driver && !o.cancelled && (!o.driver_to || !o.driver_back);
+const missingDriver = (o) =>
+  o.ev.needs_driver && !o.cancelled && ((!o.skip_to && !o.driver_to) || (!o.skip_back && !o.driver_back));
+
+const SKIP = 'skip'; // Wert im Auswahlfeld für "nicht nötig"
+const skipField = (field) => (field === 'driver_to' ? 'skip_to' : 'skip_back');
+
+// Auswahlfeld-Wert → { driver_x, skip_x }
+const driverPatch = (field, value) => ({
+  [field]: value && value !== SKIP ? value : null,
+  [skipField(field)]: value === SKIP,
+});
 
 function setOccurrence(o, patch) {
   const row = {
@@ -141,6 +155,8 @@ function setOccurrence(o, patch) {
     date: o.day,
     driver_to: o.driver_to || null,
     driver_back: o.driver_back || null,
+    skip_to: o.skip_to,
+    skip_back: o.skip_back,
     cancelled: o.cancelled,
     ...patch,
   };
@@ -148,16 +164,23 @@ function setOccurrence(o, patch) {
   return save('event_occurrences', row, 'event_id,date');
 }
 
-function driverSelect(o, field, label) {
-  const current = o[field];
+// Optionen: offen / nicht nötig / alle, die fahren können
+function driverOptions(current, skip) {
   const options = members().filter((m) => m.drives || m.id === current);
-  const missing = !current;
   return `
-    <label class="drv ${missing ? 'missing' : ''}">
+    <option value="">– offen –</option>
+    <option value="${SKIP}" ${skip ? 'selected' : ''}>entfällt</option>
+    ${options.map((m) => `<option value="${m.id}" ${!skip && m.id === current ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}`;
+}
+
+function driverSelect(o, field, label) {
+  const skip = o[skipField(field)];
+  const missing = !skip && !o[field];
+  return `
+    <label class="drv ${missing ? 'missing' : ''} ${skip ? 'skip' : ''}">
       <span>${label}</span>
       <select data-change="driver" data-event="${o.ev.id}" data-day="${o.day}" data-field="${field}">
-        <option value="">– offen –</option>
-        ${options.map((m) => `<option value="${m.id}" ${m.id === current ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+        ${driverOptions(o[field], skip)}
       </select>
     </label>`;
 }
@@ -282,7 +305,7 @@ function viewHeute() {
       <h2>Essen</h2>
       <div class="card meal">
         <span class="meal-icon">🍽️</span>
-        <input id="meal-input" data-day="${day}" value="${esc(meal?.text || '')}" placeholder="Was gibt es ${isToday ? 'heute' : 'an diesem Tag'}?" enterkeyhint="done" />
+        <input id="meal-input" class="meal-input" data-day="${day}" value="${esc(meal?.text || '')}" placeholder="Was gibt es ${isToday ? 'heute' : 'an diesem Tag'}?" enterkeyhint="done" />
       </div>
     </section>
 
@@ -315,7 +338,8 @@ function viewWoche() {
       const open = tasks.filter((x) => !x.done).length;
       const meal = state.data.meals.find((m) => m.date === day);
       return `
-        <button class="card week-day ${day === today ? 'today' : ''}" data-action="goto-day" data-day="${day}">
+        <div class="card week-day ${day === today ? 'today' : ''}">
+          <button class="week-top" data-action="goto-day" data-day="${day}">
           <div class="wd">
             <strong>${D.WD_SHORT[D.isoWeekday(day) - 1]}</strong>
             <span>${D.fromKey(day).getDate()}.</span>
@@ -334,16 +358,73 @@ function viewWoche() {
                     .join('')
                 : '<div class="muted small">Keine Termine</div>'
             }
-            ${meal?.text ? `<div class="wline small">🍽️ ${esc(meal.text)}</div>` : ''}
             ${open ? `<div class="wline small muted">☐ ${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
           </div>
-        </button>`;
+          </button>
+          <label class="week-meal">
+            <span>🍽️</span>
+            <input class="meal-input" data-day="${day}" value="${esc(meal?.text || '')}" placeholder="Essen eintragen" enterkeyhint="next" />
+          </label>
+        </div>`;
     })
     .join('');
 }
 
+/* Schnelltasten: was oft gekauft wird (pro Gerät gemerkt) + ein paar Klassiker */
+const QUICK_DEFAULTS = [
+  ['Milch', 'Rewe'],
+  ['Brot', 'Rewe'],
+  ['Butter', 'Rewe'],
+  ['Eier', 'Rewe'],
+  ['Käse', 'Rewe'],
+  ['Joghurt', 'Rewe'],
+  ['Bananen', 'Rewe'],
+  ['Äpfel', 'Rewe'],
+  ['Toilettenpapier', 'Rewe'],
+  ['Wasser', 'Getränke'],
+  ['Apfelschorle', 'Getränke'],
+];
+
+function readHistory() {
+  try {
+    return JSON.parse(lsGet('fo-shop-history') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function rememberItem(name, shop) {
+  const h = readHistory();
+  const key = name.toLowerCase();
+  h[key] = { name, shop, n: (h[key]?.n || 0) + 1 };
+  lsSet('fo-shop-history', JSON.stringify(h));
+}
+
+function quickItems() {
+  const open = new Set(state.data.shopping_items.filter((i) => !i.done).map((i) => i.name.toLowerCase()));
+  const h = readHistory();
+  const fromHistory = Object.values(h).sort((a, b) => b.n - a.n);
+  const all = [...fromHistory, ...QUICK_DEFAULTS.map(([name, shop]) => ({ name, shop }))];
+  const seen = new Set();
+  const out = [];
+  for (const it of all) {
+    const key = it.name.toLowerCase();
+    if (seen.has(key) || open.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+function addItem(name, shop) {
+  rememberItem(name, shop);
+  save('shopping_items', { name, shop, done: false });
+}
+
 function viewEinkauf() {
   const items = state.data.shopping_items;
+  const quick = quickItems();
   const groups = SHOPS.map((shop) => {
     const list = items
       .filter((i) => (SHOPS.includes(i.shop) ? i.shop : 'Sonstiges') === shop)
@@ -376,6 +457,16 @@ function viewEinkauf() {
       <select name="shop">${SHOPS.map((s) => `<option ${s === state.shop ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <button class="btn primary" type="submit">+</button>
     </form>
+    ${
+      quick.length
+        ? `<div class="quick">${quick
+            .map(
+              (q) => `<button class="quick-chip" data-action="quick-add" data-name="${esc(q.name)}" data-shop="${esc(q.shop)}">
+                + ${esc(q.name)}${q.shop === 'Getränke' ? ' <span class="muted small">🥤</span>' : ''}</button>`
+            )
+            .join('')}</div>`
+        : ''
+    }
     ${groups || '<p class="empty">Die Liste ist leer.</p>'}
     ${items.some((i) => i.done) ? '<button class="btn ghost wide" data-action="clear-done">Erledigte entfernen</button>' : ''}`;
 }
@@ -664,8 +755,8 @@ function eventForm(ev, day) {
     <label>Wo? (optional)<input name="location" value="${esc(ev.location || '')}" /></label>
     <label class="check-line"><input type="checkbox" name="needs_driver" ${ev.needs_driver ? 'checked' : ''}/> Jemand muss fahren</label>
     <div class="row" data-driver>
-      <label>${weekly ? 'Standard ' : ''}Hin<select name="driver_to">${memberOptions(ev.driver_to, { filter: (m) => m.drives, empty: '– offen –' })}</select></label>
-      <label>${weekly ? 'Standard ' : ''}Zurück<select name="driver_back">${memberOptions(ev.driver_back, { filter: (m) => m.drives, empty: '– offen –' })}</select></label>
+      <label>${weekly ? 'Standard ' : ''}Hin<select name="driver_to">${driverOptions(ev.driver_to, ev.skip_to)}</select></label>
+      <label>${weekly ? 'Standard ' : ''}Zurück<select name="driver_back">${driverOptions(ev.driver_back, ev.skip_back)}</select></label>
     </div>
     <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>`;
 
@@ -698,8 +789,8 @@ function eventForm(ev, day) {
         end_time: f.get('end_time') || null,
         location: f.get('location').trim() || null,
         needs_driver: f.get('needs_driver') === 'on',
-        driver_to: f.get('driver_to') || null,
-        driver_back: f.get('driver_back') || null,
+        ...driverPatch('driver_to', f.get('driver_to')),
+        ...driverPatch('driver_back', f.get('driver_back')),
         notes: f.get('notes').trim() || null,
       });
       closeSheet();
@@ -893,6 +984,10 @@ const actions = {
     if (i) save('shopping_items', { id: i.id, done: !i.done });
   },
   'delete-item': (d) => del('shopping_items', d.id),
+  'quick-add': (d) => {
+    addItem(d.name, SHOPS.includes(d.shop) ? d.shop : 'Sonstiges');
+    toast(`${d.name} hinzugefügt`);
+  },
   'clear-done': async () => {
     const done = state.data.shopping_items.filter((i) => i.done);
     state.data.shopping_items = state.data.shopping_items.filter((i) => !i.done);
@@ -946,7 +1041,7 @@ document.addEventListener('change', (e) => {
   }
   if (el.dataset.change === 'driver') {
     const o = eventsOn(el.dataset.day).find((x) => x.ev.id === el.dataset.event);
-    if (o) setOccurrence(o, { [el.dataset.field]: el.value || null });
+    if (o) setOccurrence(o, driverPatch(el.dataset.field, el.value));
     return;
   }
   if (el.dataset.change === 'me') {
@@ -968,18 +1063,24 @@ document.addEventListener(
   'blur',
   (e) => {
     const el = e.target;
-    if (el.id === 'meal-input') {
+    if (el.classList?.contains('meal-input')) {
       const text = el.value.trim();
       const existing = state.data.meals.find((m) => m.date === el.dataset.day);
-      if ((existing?.text || '') !== text) save('meals', { date: el.dataset.day, text: text || null }, 'date');
+      if ((existing?.text || '') !== text) save('meals', { date: el.dataset.day, text: text || null }, 'date', { quiet: true });
     }
-    if (state.pendingRender) setTimeout(render, 0);
+    else if (state.pendingRender) setTimeout(render, 0);
   },
   true
 );
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && e.target.id === 'meal-input') e.target.blur();
+  if (e.key === 'Enter' && e.target.classList?.contains('meal-input')) {
+    // In der Wochenansicht direkt zum nächsten Tag springen
+    const all = [...document.querySelectorAll('#main .meal-input')];
+    const next = all[all.indexOf(e.target) + 1];
+    if (next) next.focus();
+    else e.target.blur();
+  }
   if (e.key === 'Escape' && $('#sheet-root').innerHTML) closeSheet();
 });
 
@@ -1001,7 +1102,7 @@ document.addEventListener('submit', async (e) => {
     const input = form.querySelector('input[name="name"]');
     input.value = '';
     input.blur(); // sonst wird die Liste nicht neu gezeichnet
-    save('shopping_items', { name, shop, done: false }); // zeichnet sofort neu
+    addItem(name, shop); // zeichnet sofort neu
     $('#main form.add-item input[name="name"]')?.focus();
   }
 

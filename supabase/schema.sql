@@ -83,6 +83,12 @@ create table if not exists public.shopping_items (
   created_at timestamptz not null default now()
 );
 
+-- "Fahrt nicht nötig" für Hin- bzw. Rückweg (Update 1)
+alter table public.events add column if not exists skip_to boolean not null default false;
+alter table public.events add column if not exists skip_back boolean not null default false;
+alter table public.event_occurrences add column if not exists skip_to boolean not null default false;
+alter table public.event_occurrences add column if not exists skip_back boolean not null default false;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
