@@ -2080,7 +2080,24 @@ function debounce(fn, ms) {
 }
 
 async function boot() {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .register('sw.js', { updateViaCache: 'none' })
+      .then((reg) => {
+        // Beim Zurückkehren in die App nach Updates schauen
+        document.addEventListener('visibilitychange', () => !document.hidden && reg.update().catch(() => {}));
+      })
+      .catch(() => {});
+    // Neue Version übernommen → einmal neu laden, damit sie sofort sichtbar ist
+    // (nicht beim allerersten Start, da gab es noch keine alte Version)
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded || !hadController) return;
+      reloaded = true;
+      if (!document.body.classList.contains('sheet-open')) location.reload();
+    });
+  }
   try {
     if (store.isCloud) {
       await store.initCloud();

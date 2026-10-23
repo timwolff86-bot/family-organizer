@@ -1,7 +1,7 @@
 // Service Worker: macht die App installierbar und startet sie auch bei schlechtem Netz.
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
 // Supabase-Bibliothek vom CDN: aus dem Cache, weil sich die Version nie ändert.
-const CACHE = 'familienplaner-v14';
+const CACHE = 'familienplaner-v15';
 const SHELL = [
   './',
   'index.html',
@@ -54,8 +54,10 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin !== self.location.origin) return; // z. B. Supabase-Daten: nie cachen
 
+  // no-cache: immer beim Server nachfragen, ob es eine neuere Version gibt
+  // (sonst hält das Handy alte Dateien bis zu 10 Minuten fest)
   e.respondWith(
-    fetch(req)
+    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
