@@ -1905,3 +1905,28 @@ body {
 .bd-line .link {
   font-size: 15px;
 }
+
+/* Ferien & Feiertage */
+.day-note {
+  font-weight: 600;
+}
+.week-ferien {
+  margin: 0 2px 12px;
+  font-weight: 600;
+}
+.wline.hol {
+  color: var(--red);
+  font-weight: 600;
+}
+.ws-day.hol .ws-num {
+  color: var(--red);
+}
+.ws-day.ferien:not(.sel) {
+  background: color-mix(in srgb, #f4a261 16%, transparent);
+}
+.ws-day.sel.hol .ws-num {
+  color: var(--on-accent);
+}
+.rhythm-box {
+  gap: 12px;
+}

@@ -140,6 +140,10 @@ create table if not exists public.birthdays (
   created_at timestamptz not null default now()
 );
 
+-- Wiederholungs-Rhythmen (Update 8)
+alter table public.tasks add column if not exists repeat text;
+alter table public.tasks add column if not exists repeat_from date;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$

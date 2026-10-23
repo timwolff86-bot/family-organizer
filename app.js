@@ -2,6 +2,7 @@ import * as store from './store.js';
 import * as D from './dates.js';
 import { CATEGORIES, QUICK_DEFAULTS, categoryOf, classify, normalize, seedProducts } from './products.js';
 import { RECIPE_CATEGORIES, SEED_RECIPES, STAPLES, recipeCategory } from './recipes.js';
+import { STATES, holidayOn, refreshSchoolHolidays, schoolHolidayOn } from './holidays.js';
 
 /* ================= Zustand ================= */
 
@@ -27,6 +28,7 @@ const state = {
   me: lsGet('fo-me'),
   taskFilter: lsGet('fo-filter') === 'meine' ? 'meine' : 'alle', // alle | meine
   hiddenAt: null,
+  land: lsGet('fo-land') ?? 'NW', // Bundesland für Ferien/Feiertage, '' = aus
   pendingRender: false,
 };
 
@@ -418,6 +420,41 @@ const canSeeReminder = (t) =>
 const peopleOf = (t) => (t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []);
 const chips = (ids) => ids.map((id) => chip(id)).join('');
 
+// Wiederholung: 'weekly' | 'biweekly' | 'monthly' | 'yearly' (ältere Einträge: nur weekdays = wöchentlich)
+const rhythmOf = (t) => t.repeat || (t.weekdays?.length ? 'weekly' : null);
+const isRecurring = (t) => !!rhythmOf(t);
+const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+
+function occursOn(t, day) {
+  const r = rhythmOf(t);
+  const from = t.repeat_from;
+  if (from && day < from) return false;
+  const [y, m, d] = day.split('-').map(Number);
+  if (r === 'weekly') return t.weekdays?.includes(D.isoWeekday(day));
+  if (r === 'biweekly') {
+    if (!t.weekdays?.includes(D.isoWeekday(day))) return false;
+    if (!from) return true;
+    const weeks = Math.round((D.fromKey(D.startOfWeek(day)) - D.fromKey(D.startOfWeek(from))) / (7 * 86400000));
+    return weeks % 2 === 0;
+  }
+  if (!from) return false;
+  const [, fm, fd] = from.split('-').map(Number);
+  if (r === 'monthly') return d === Math.min(fd, daysInMonth(y, m));
+  if (r === 'yearly') return m === fm && d === Math.min(fd, daysInMonth(y, m));
+  return false;
+}
+
+function rhythmText(t) {
+  const r = rhythmOf(t);
+  const wd = () => [...(t.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ');
+  const fd = t.repeat_from ? D.fromKey(t.repeat_from) : null;
+  if (r === 'weekly') return wd();
+  if (r === 'biweekly') return `alle 2 Wochen ${wd()}`;
+  if (r === 'monthly') return `monatlich am ${fd?.getDate()}.`;
+  if (r === 'yearly') return `jährlich am ${fd?.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' })}`;
+  return '';
+}
+
 // kind: 'aufgabe' oder 'erinnerung'
 function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
   const today = D.todayKey();
@@ -425,8 +462,8 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
   for (const t of state.data.tasks) {
     if ((t.kind || 'aufgabe') !== kind) continue;
     if (kind === 'erinnerung' && !canSeeReminder(t)) continue;
-    if (t.weekdays?.length) {
-      if (t.weekdays.includes(D.isoWeekday(day))) {
+    if (isRecurring(t)) {
+      if (occursOn(t, day)) {
         const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
         out.push({ t, day, done: !!c, recurring: true });
       }
@@ -454,7 +491,7 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
 function toggleTask(taskId, day) {
   const t = state.data.tasks.find((x) => x.id === taskId);
   if (!t) return;
-  if (t.weekdays?.length) {
+  if (isRecurring(t)) {
     const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
     if (c) del('task_completions', c.id);
     else save('task_completions', { task_id: t.id, date: day }, 'task_id,date');
@@ -512,6 +549,8 @@ function viewHeute() {
   const openTasks = allTasks.filter((x) => !x.done).length;
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const bdays = birthdaysOn(day);
+  const holiday = holidayOn(day, state.land);
+  const ferien = schoolHolidayOn(day, state.land);
   const summary = [
     bdays.length ? plural(bdays.length, 'Geburtstag', 'Geburtstage') : '',
     activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
@@ -532,9 +571,13 @@ function viewHeute() {
         .join('')}
     </div>
     ${
-      bdays.length
-        ? `<p class="bd-line">${bdays
-            .map((b) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, day))}</button>`)
+      bdays.length || holiday || ferien
+        ? `<p class="bd-line">${[
+            holiday ? `<span class="day-note">🎉 ${esc(holiday.name)} <span class="muted">(Feiertag)</span></span>` : '',
+            ferien ? `<span class="day-note">🏖️ ${esc(ferien.name)} <span class="muted">bis ${D.formatShort(ferien.end)}</span></span>` : '',
+            ...bdays.map((b) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, day))}</button>`),
+          ]
+            .filter(Boolean)
             .join('<br />')}</p>`
         : ''
     }
@@ -627,13 +670,18 @@ function viewPerson() {
 function viewWoche() {
   const days = Array.from({ length: 7 }, (_, i) => D.addDays(state.weekStart, i));
   const today = D.todayKey();
-  return days
+  // Ferien dieser Woche einmal oben anzeigen
+  const ferien = [...new Map(days.map((d) => schoolHolidayOn(d, state.land)).filter(Boolean).map((f) => [f.start, f])).values()];
+  return ferien
+    .map((f) => `<p class="week-ferien">🏖️ ${esc(f.name)} <span class="muted">${D.formatShort(f.start)} – ${D.formatShort(f.end)}</span></p>`)
+    .join('') + days
     .map((day) => {
       const events = eventsOn(day);
       const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue);
       const open = tasks.filter((x) => !x.done).length;
       const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue);
       const bdays = birthdaysOn(day);
+      const holiday = holidayOn(day, state.land);
       const meal = state.data.meals.find((m) => m.date === day);
       return `
         <div class="card week-day ${day === today ? 'today' : ''}">
@@ -643,6 +691,7 @@ function viewWoche() {
             <span>${D.fromKey(day).getDate()}.</span>
           </div>
           <div class="body">
+            ${holiday ? `<div class="wline hol">🎉 ${esc(holiday.name)}</div>` : ''}
             ${bdays.map((b) => `<div class="wline bd">🎂 ${esc(birthdayText(b, day))}</div>`).join('')}
             ${
               events.length
@@ -654,7 +703,7 @@ function viewWoche() {
                       </div>`
                     )
                     .join('')
-                : bdays.length
+                : bdays.length || holiday
                   ? ''
                   : '<div class="muted small">Keine Termine</div>'
             }
@@ -1033,18 +1082,20 @@ function viewMehr() {
   const events = [...state.data.events]
     .filter((e) => e.weekdays?.length || (e.date && (e.end_date || e.date) >= D.todayKey()))
     .sort((a, b) => !!b.weekdays?.length - !!a.weekdays?.length || (a.date || '').localeCompare(b.date || '') || a.title.localeCompare(b.title));
-  const tasks = state.data.tasks.filter((t) => !isReminder(t) && (t.weekdays?.length || !t.done_at));
+  const tasks = state.data.tasks.filter((t) => !isReminder(t) && (isRecurring(t) || !t.done_at));
   const reminders = state.data.tasks
-    .filter((t) => isReminder(t) && canSeeReminder(t) && (t.weekdays?.length || !t.done_at))
+    .filter((t) => isReminder(t) && canSeeReminder(t) && (isRecurring(t) || !t.done_at))
     .sort(
       (a, b) =>
-        !!b.weekdays?.length - !!a.weekdays?.length ||
+        isRecurring(b) - isRecurring(a) ||
         (a.due_date || '').localeCompare(b.due_date || '') ||
         (a.due_time || '').localeCompare(b.due_time || '')
     );
 
   const when = (x) =>
-    x.weekdays?.length
+    x.kind && isRecurring(x)
+      ? rhythmText(x)
+      : x.weekdays?.length
       ? [...x.weekdays].sort().map((d) => D.WD_SHORT[d - 1]).join(', ')
       : x.date && x.end_date && x.end_date > x.date
         ? `${D.formatShort(x.date)} – ${D.formatShort(x.end_date)}`
@@ -1083,6 +1134,17 @@ function viewMehr() {
     </section>
 
     <section>
+      <h2>Ferien &amp; Feiertage</h2>
+      <div class="card pad">
+        <select data-change="land">
+          <option value="" ${state.land ? '' : 'selected'}>– nicht anzeigen –</option>
+          ${STATES.map(([k, n]) => `<option value="${k}" ${k === state.land ? 'selected' : ''}>${n}</option>`).join('')}
+        </select>
+        <p class="muted small">Schulferien und Feiertage dieses Bundeslands werden im Kalender angezeigt (gilt für dieses Gerät).</p>
+      </div>
+    </section>
+
+    <section>
       <h2>Darstellung</h2>
       <div class="card pad">
         <div class="seg wide theme-seg">
@@ -1108,7 +1170,7 @@ function viewMehr() {
             ? reminders
                 .map(
                   (t) => `<li><button data-action="edit-task" data-id="${t.id}">
-                    <span class="grow">🔔 ${esc(t.title)} ${t.weekdays?.length ? '<span class="muted small">↻</span>' : ''} ${chips(peopleOf(t))}</span>
+                    <span class="grow">🔔 ${esc(t.title)} ${isRecurring(t) ? '<span class="muted small">↻</span>' : ''} ${chips(peopleOf(t))}</span>
                     <span class="muted small">${esc(when(t))}${t.due_time ? ` · ${D.hm(t.due_time)}` : ''}</span>
                   </button></li>`
                 )
@@ -1249,7 +1311,7 @@ function weekStrip() {
       <button class="ws-nav" data-action="prev-week-day" aria-label="Vorherige Woche">‹</button>
       ${days
         .map(
-          (day) => `<button class="ws-day ${day === state.date ? 'sel' : ''} ${day === today ? 'today' : ''}" data-action="select-day" data-day="${day}">
+          (day) => `<button class="ws-day ${day === state.date ? 'sel' : ''} ${day === today ? 'today' : ''} ${holidayOn(day, state.land) ? 'hol' : ''} ${schoolHolidayOn(day, state.land) ? 'ferien' : ''}" data-action="select-day" data-day="${day}">
             <span class="ws-wd">${D.WD_SHORT[D.isoWeekday(day) - 1]}</span>
             <span class="ws-num">${D.fromKey(day).getDate()}</span>
             <span class="ws-dot ${busy(day) ? 'on' : ''}"></span>
@@ -1509,17 +1571,60 @@ function peoplePicker(selected) {
 }
 const readPeople = () => [...$('#sheet-root form').querySelectorAll('input[name="who"]:checked')].map((i) => i.value);
 
+// Rhythmus-Auswahl für wiederkehrende Erinnerungen/Aufgaben
+function rhythmFields(t, day) {
+  const r = rhythmOf(t) || 'weekly';
+  const from = t.repeat_from || day || state.date;
+  return `
+    <div data-show="weekly" class="rhythm-box">
+      <label>Wie oft?<select name="rhythm">
+        ${[
+          ['weekly', 'Jede Woche'],
+          ['biweekly', 'Alle 2 Wochen'],
+          ['monthly', 'Jeden Monat'],
+          ['yearly', 'Jedes Jahr'],
+        ]
+          .map(([k, l]) => `<option value="${k}" ${k === r ? 'selected' : ''}>${l}</option>`)
+          .join('')}
+      </select></label>
+      <div data-rhythm="weekly biweekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
+      <label><span data-from-label>${r === 'weekly' ? 'Ab (optional)' : 'Erstes Mal am'}</span><input type="date" name="repeat_from" value="${esc(from)}" /></label>
+    </div>`;
+}
+
+function updateRhythmVisibility(form) {
+  const r = form.querySelector('select[name="rhythm"]')?.value;
+  if (!r) return;
+  form.querySelectorAll('[data-rhythm]').forEach((el) => (el.hidden = !el.dataset.rhythm.split(' ').includes(r)));
+  const label = form.querySelector('[data-from-label]');
+  if (label) label.textContent = r === 'weekly' ? 'Ab (optional)' : 'Erstes Mal am';
+}
+
+// Werte für die Datenbank aus dem Formular
+function readRhythm(f) {
+  const form = $('#sheet-root form');
+  const r = f.get('rhythm');
+  const wds = readWeekdays(form);
+  if ((r === 'weekly' || r === 'biweekly') && !wds.length) return { error: 'Bitte mindestens einen Wochentag wählen.' };
+  return {
+    repeat: r,
+    weekdays: r === 'weekly' || r === 'biweekly' ? wds : null,
+    repeat_from: f.get('repeat_from') || state.date,
+  };
+}
+const noRhythm = { repeat: null, weekdays: null, repeat_from: null };
+
 function reminderForm(t, day) {
   const isNew = !t;
   t ||= { due_date: day || state.date, assignees: state.me ? [state.me] : [] };
-  const weekly = t.weekdays?.length > 0;
+  const weekly = isRecurring(t);
   const inner = `
     <label>Woran erinnern?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Turnbeutel einpacken" required /></label>
     ${repeatSwitch('repeat', weekly ? 'weekly' : 'once', [
       ['once', 'Einmalig'],
       ['weekly', 'Wiederkehrend'],
     ])}
-    <div data-show="weekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
+    ${rhythmFields(t, day)}
     <div class="row">
       <label data-show="once">Tag<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" /></label>
       <label>Uhrzeit (optional)<input type="time" name="due_time" value="${esc(D.hm(t.due_time))}" /></label>
@@ -1535,17 +1640,17 @@ function reminderForm(t, day) {
     (f) => {
       const people = readPeople();
       const repeat = f.get('repeat');
-      const wds = readWeekdays($('#sheet-root form'));
-      if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
+      const rh = repeat === 'weekly' ? readRhythm(f) : noRhythm;
+      if (rh.error) return toast(rh.error);
       save('tasks', {
         id: t.id,
         ...(isNew ? { created_by: state.me || null } : {}),
+        ...rh,
         kind: 'erinnerung',
         title: f.get('title').trim(),
         assignees: people,
         assignee: people[0] || null,
         due_date: repeat === 'once' ? f.get('due_date') || state.date : null,
-        weekdays: repeat === 'weekly' ? wds : null,
         due_time: f.get('due_time') || null,
         notes: f.get('notes').trim() || null,
         done_at: repeat === 'once' ? t.done_at ?? null : null,
@@ -1556,12 +1661,13 @@ function reminderForm(t, day) {
     extra
   );
   updateRepeatVisibility($('#sheet-root form'));
+  updateRhythmVisibility($('#sheet-root form'));
 }
 
 function taskForm(t, day) {
   const isNew = !t;
   t ||= { assignee: null, due_date: day || state.date };
-  const mode = t.weekdays?.length ? 'weekly' : t.due_date ? 'date' : 'none';
+  const mode = isRecurring(t) ? 'weekly' : t.due_date ? 'date' : 'none';
   const inner = `
     <label>Was?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Getränke bestellen" required /></label>
     <div class="field-label">Wer? <span class="muted small">(leer = wer Zeit hat)</span></div>
@@ -1569,10 +1675,10 @@ function taskForm(t, day) {
     ${repeatSwitch('repeat', mode, [
       ['none', 'Ohne Datum'],
       ['date', 'An einem Tag'],
-      ['weekly', 'Jede Woche'],
+      ['weekly', 'Wiederkehrend'],
     ])}
     <label data-show="date">Datum<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" /></label>
-    <div data-show="weekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
+    ${rhythmFields(t, day)}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
 
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Aufgabe löschen</button>`;
@@ -1582,25 +1688,26 @@ function taskForm(t, day) {
     inner,
     (f) => {
       const repeat = f.get('repeat');
-      const wds = readWeekdays($('#sheet-root form'));
-      if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
+      const rh = repeat === 'weekly' ? readRhythm(f) : noRhythm;
+      if (rh.error) return toast(rh.error);
       const people = readPeople();
       save('tasks', {
         id: t.id,
+        ...rh,
         kind: 'aufgabe',
         title: f.get('title').trim(),
         assignees: people,
         assignee: people[0] || null,
         due_date: repeat === 'date' ? f.get('due_date') || state.date : null,
-        weekdays: repeat === 'weekly' ? wds : null,
         notes: f.get('notes').trim() || null,
-        done_at: t.done_at ?? null,
+        done_at: repeat === 'weekly' ? null : t.done_at ?? null,
       });
       closeSheet();
     },
     extra
   );
   updateRepeatVisibility($('#sheet-root form'));
+  updateRhythmVisibility($('#sheet-root form'));
 }
 
 // Einstellungen: eine Zeile mit Vorschau, die Liste liegt eine Ebene tiefer
@@ -1998,6 +2105,13 @@ document.addEventListener('change', async (e) => {
     render();
     return;
   }
+  if (el.dataset.change === 'land') {
+    state.land = el.value;
+    lsSet('fo-land', el.value);
+    render();
+    refreshSchoolHolidays(state.land).then((changed) => changed && render());
+    return;
+  }
   if (el.dataset.change === 'me') {
     state.me = el.value || null;
     lsSet('fo-me', state.me);
@@ -2005,6 +2119,7 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
+  if (el.name === 'rhythm') updateRhythmVisibility(el.form);
   if (el.name === 'all_day') el.form.querySelector('[data-times]').hidden = el.checked;
   if (el.name === 'repeat' && el.form.querySelector('[data-time-label]')) {
     const multi = el.value === 'multi';
@@ -2206,6 +2321,7 @@ async function startData() {
     toast('Startdaten konnten nicht angelegt werden.');
   }
   seedCatalogs();
+  refreshSchoolHolidays(state.land).then((changed) => changed && render());
   store.subscribe(debounce(() => reload(), 400));
   render();
 }
