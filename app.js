@@ -327,7 +327,8 @@ function eventsOn(day) {
     o.sort = o.time.startsWith('Ganz') || o.time.startsWith('bis') ? '' : D.hm(ev.start_time);
     out.push(o);
   }
-  return out.sort((a, b) => a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
+  // Ausgefallene Termine ans Ende
+  return out.sort((a, b) => a.cancelled - b.cancelled || a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
 }
 
 // Personen eines Termins (ältere Einträge haben nur member_id)
@@ -364,7 +365,7 @@ function eventCard(o) {
   const allDay = o.time === 'Ganztägig';
   // Farbstreifen in den Farben der beteiligten Personen
   const colors = eventPeople(ev).map((id) => member(id)?.color).filter(Boolean);
-  const stripe = !colors.length
+  const stripe = !colors.length || o.cancelled
     ? 'var(--line)'
     : colors.length === 1
       ? colors[0]
@@ -374,12 +375,15 @@ function eventCard(o) {
       <button class="event-main" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
         <span class="stripe" style="background:${stripe}"></span>
         <div class="body">
-          <div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>
+          ${
+            o.cancelled
+              ? `<div class="cancel-label">Fällt aus${allDay ? '' : ` · ${esc(o.time)}`}</div>`
+              : `<div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>`
+          }
           <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}</div>
           <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
-          ${o.multi ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
-          ${o.cancelled ? '<div class="tag">Fällt aus</div>' : ''}
-          ${ev.notes ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
+          ${o.multi && !o.cancelled ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
+          ${ev.notes && !o.cancelled ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
         </div>
       </button>
     </article>`;

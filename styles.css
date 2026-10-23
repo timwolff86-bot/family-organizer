@@ -2117,3 +2117,33 @@ main.slide-in-left {
 body {
   overflow-x: hidden;
 }
+
+/* Ausgefallener Termin: dezent */
+.event.cancelled {
+  background: color-mix(in srgb, var(--line) 45%, var(--bg));
+  border-color: transparent;
+  box-shadow: none;
+}
+.event.cancelled .event-main {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  opacity: 0.75;
+}
+.event.cancelled .title {
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.event.cancelled .meta {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+.cancel-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 1px;
+}
