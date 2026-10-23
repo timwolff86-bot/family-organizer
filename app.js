@@ -512,9 +512,9 @@ function viewHeute() {
   const openTasks = allTasks.filter((x) => !x.done).length;
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const bdays = birthdaysOn(day);
-  const upcoming = Array.from({ length: 7 }, (_, i) => D.addDays(day, i + 1)).flatMap((d) =>
-    birthdaysOn(d).map((b) => ({ b, d }))
-  );
+  // Hinweis nur am Tag vorher
+  const tomorrow = D.addDays(day, 1);
+  const upcoming = birthdaysOn(tomorrow);
   const summary = [
     bdays.length ? plural(bdays.length, 'Geburtstag', 'Geburtstage') : '',
     activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
@@ -551,8 +551,8 @@ function viewHeute() {
       .join('')}
     ${
       upcoming.length
-        ? `<p class="bd-upcoming">Demnächst: ${upcoming
-            .map(({ b, d }) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(b.name)}</button> <span class="muted">${D.formatShort(d)}</span>`)
+        ? `<p class="bd-upcoming">${isToday ? 'Morgen' : `Am ${D.formatShort(tomorrow)}`}: ${upcoming
+            .map((b) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, tomorrow))}</button>`)
             .join(' · ')}</p>`
         : ''
     }
