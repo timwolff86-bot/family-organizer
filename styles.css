@@ -1866,3 +1866,25 @@ body {
   color: var(--accent);
   font-weight: 700;
 }
+
+/* Einstellungen: Zeile, die eine Unterseite öffnet */
+.nav-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+}
+.nav-icon {
+  font-size: 24px;
+}
+.chev {
+  font-size: 24px;
+  color: var(--muted);
+}
+.view-geburtstage {
+  padding-top: 18px;
+}
+.top h1 + .nav {
+  margin-left: 0;
+}

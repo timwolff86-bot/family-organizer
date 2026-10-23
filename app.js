@@ -1097,30 +1097,7 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>🎂 Geburtstage</h2><button class="link" data-action="new-birthday">+ Geburtstag</button></div>
-      ${
-        state.data.missing?.includes('birthdays')
-          ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-7.sql in Supabase ausführen.</div>'
-          : `<ul class="card list">
-        ${
-          state.data.birthdays.length
-            ? [...state.data.birthdays]
-                .map((b) => ({ b, next: nextBirthday(b) }))
-                .sort((x, y) => x.next.localeCompare(y.next))
-                .map(({ b, next }) => {
-                  const days = Math.round((D.fromKey(next) - D.fromKey(D.todayKey())) / 86400000);
-                  const age = ageOn(b, next);
-                  return `<li><button data-action="edit-birthday" data-id="${b.id}">
-                    <span class="grow">${esc(b.name)}</span>
-                    <span class="muted small bd-when">${b.day}. ${MONTHS[b.month - 1]}${age ? ` · wird ${age}` : ''}<br />
-                      <b>${days === 0 ? 'heute 🎉' : days === 1 ? 'morgen' : `in ${days} Tagen`}</b></span>
-                  </button></li>`;
-                })
-                .join('')
-            : '<li class="empty">Noch keine Geburtstage eingetragen</li>'
-        }
-      </ul>`
-      }
+      ${birthdaysEntry()}
     </section>
 
     <section>
@@ -1242,6 +1219,14 @@ function header() {
         <button class="nav" data-action="next-week" aria-label="Nächste Woche">›</button>
       </header>`;
   }
+  if (state.view === 'geburtstage') {
+    return `
+      <header class="top">
+        <button class="nav" data-action="tab" data-tab="mehr" aria-label="Zurück">‹</button>
+        <h1>Geburtstage</h1>
+        <button class="nav" data-action="new-birthday" aria-label="Geburtstag eintragen">＋</button>
+      </header>`;
+  }
   if (state.view === 'person') {
     const m = member(state.personId);
     return `
@@ -1303,7 +1288,7 @@ function tabbar() {
   ];
   return `<nav class="tabbar">${tabs
     .map(
-      ([k, i, l]) => `<button class="${state.view === k ? 'on' : ''}" data-action="tab" data-tab="${k}">
+      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && state.view === 'geburtstage') ? 'on' : ''}" data-action="tab" data-tab="${k}">
         <span class="ti">${icon(i)}</span><span>${l}</span></button>`
     )
     .join('')}</nav>`;
@@ -1334,13 +1319,13 @@ function render() {
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: () => weekIngredientsButton() + viewWoche(), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson };
+  const views = { heute: viewHeute, woche: () => weekIngredientsButton() + viewWoche(), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
     <main id="main" class="view-${state.view}">${views[state.view]()}</main>
     ${recipeList()}
-    ${['heute', 'woche', 'einkauf', 'kochbuch', 'person'].includes(state.view) ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
+    ${['heute', 'woche', 'einkauf', 'kochbuch', 'person', 'geburtstage'].includes(state.view) ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
     ${tabbar()}`;
   window.scrollTo(0, scroll);
 }
@@ -1636,6 +1621,49 @@ function taskForm(t, day) {
   updateRepeatVisibility($('#sheet-root form'));
 }
 
+// Einstellungen: eine Zeile mit Vorschau, die Liste liegt eine Ebene tiefer
+function birthdaysEntry() {
+  const list = state.data.birthdays || [];
+  const next = [...list].map((b) => ({ b, next: nextBirthday(b) })).sort((x, y) => x.next.localeCompare(y.next))[0];
+  const days = next ? Math.round((D.fromKey(next.next) - D.fromKey(D.todayKey())) / 86400000) : null;
+  const preview = !list.length
+    ? 'Noch keine eingetragen'
+    : `${list.length} eingetragen · nächster: ${next.b.name} ${days === 0 ? 'heute' : days === 1 ? 'morgen' : `in ${days} Tagen`}`;
+  return `<button class="card nav-row" data-action="tab" data-tab="geburtstage">
+    <span class="nav-icon">🎂</span>
+    <span class="grow-col"><span class="title">Geburtstage</span><span class="muted small">${esc(preview)}</span></span>
+    <span class="chev">›</span>
+  </button>`;
+}
+
+function viewGeburtstage() {
+  return `
+      ${
+        state.data.missing?.includes('birthdays')
+          ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-7.sql in Supabase ausführen.</div>'
+          : `<ul class="card list">
+        ${
+          state.data.birthdays.length
+            ? [...state.data.birthdays]
+                .map((b) => ({ b, next: nextBirthday(b) }))
+                .sort((x, y) => x.next.localeCompare(y.next))
+                .map(({ b, next }) => {
+                  const days = Math.round((D.fromKey(next) - D.fromKey(D.todayKey())) / 86400000);
+                  const age = ageOn(b, next);
+                  return `<li><button data-action="edit-birthday" data-id="${b.id}">
+                    <span class="grow">${esc(b.name)}</span>
+                    <span class="muted small bd-when">${b.day}. ${MONTHS[b.month - 1]}${age ? ` · wird ${age}` : ''}<br />
+                      <b>${days === 0 ? 'heute 🎉' : days === 1 ? 'morgen' : `in ${days} Tagen`}</b></span>
+                  </button></li>`;
+                })
+                .join('')
+            : '<li class="empty">Noch keine Geburtstage eingetragen</li>'
+        }
+      </ul>`
+      }
+    <button class="btn ghost wide" data-action="new-birthday">＋ Geburtstag eintragen</button>`;
+}
+
 function birthdayForm(b) {
   const isNew = !b;
   b ||= { day: '', month: new Date().getMonth() + 1 };
@@ -1878,6 +1906,7 @@ const actions = {
       return input?.focus();
     }
     if (state.view === 'kochbuch') return recipeForm(null);
+    if (state.view === 'geburtstage') return birthdayForm(null);
     addChooser();
   },
   'close-sheet': () => closeSheet(),
