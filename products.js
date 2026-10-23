@@ -25,7 +25,7 @@ const LIST = {
     Nektarinen, Aprikosen, Granatapfel, Avocado, Avocados, Obst, Tomate, Tomaten, Cherrytomaten, Rispentomaten,
     Gurke, Gurken, Salatgurke, Paprika, Zucchini, Aubergine, Auberginen, Karotte, Karotten, Möhre, Möhren, Kartoffel,
     Kartoffeln, Süßkartoffel, Süßkartoffeln, Zwiebel, Zwiebeln, Rote Zwiebeln, Frühlingszwiebeln, Lauchzwiebeln,
-    Knoblauch, Ingwer, Lauch, Porree, Sellerie, Staudensellerie, Brokkoli, Blumenkohl, Rosenkohl, Weißkohl, Rotkohl,
+    Knoblauch, Knoblauchzehe, Knoblauchzehen, Ingwer, Lauch, Porree, Sellerie, Staudensellerie, Brokkoli, Blumenkohl, Rosenkohl, Weißkohl, Rotkohl,
     Wirsing, Kohlrabi, Spinat, Blattspinat, Salat, Eisbergsalat, Kopfsalat, Feldsalat, Rucola, Romanasalat, Pilze,
     Champignons, Radieschen, Rote Bete, Spargel, Mais, Maiskolben, Kürbis, Hokkaido, Fenchel, Erbsen, Bohnen,
     Grüne Bohnen, Petersilie, Schnittlauch, Basilikum, Dill, Koriander, Minze, Kräuter, Gemüse, Suppengrün`,
@@ -37,19 +37,19 @@ const LIST = {
     Schmand, Crème fraîche, Frischkäse, Käse, Gouda, Emmentaler, Mozzarella, Parmesan, Feta, Hirtenkäse, Camembert,
     Reibekäse, Streukäse, Scheibenkäse, Halloumi, Hüttenkäse, Mascarpone, Ricotta, Ei, Eier, Pudding, Milchreis,
     Grießbrei, Kefir, Buttermilch, Kakao-Drink, Fruchtzwerge, Trinkjoghurt, Tofu, Hummus, Pesto, Frischhefe,
-    Blätterteig, Pizzateig, Gnocchi, Tortellini, Frische Pasta, Kräuterbutter, Dessert`,
+    Blätterteig, Pizzateig, Flammkuchenteig, Spätzle, Cheddar, Bergkäse, Gnocchi, Tortellini, Frische Pasta, Kräuterbutter, Dessert`,
   fleisch: `Fleisch, Hackfleisch, Hack, Rinderhack, Gemischtes Hack, Hähnchen, Hähnchenbrust, Hähnchenschenkel,
     Hühnchen, Putenbrust, Pute, Schnitzel, Steak, Rindfleisch, Schweinefleisch, Gulasch, Bratwurst, Bratwürste,
     Würstchen, Wiener, Frankfurter, Wurst, Aufschnitt, Salami, Schinken, Kochschinken, Lachsschinken, Speck,
     Schinkenwürfel, Mortadella, Leberwurst, Fleischwurst, Lyoner, Chorizo, Frikadellen, Cevapcici, Fisch, Lachs,
-    Räucherlachs, Thunfischsteak, Garnelen, Forelle, Kabeljau, Vegetarische Würstchen, Veggie-Burger, Burger Patties,
+    Räucherlachs, Lachsfilet, Lachsfilets, Speckwürfel, Rindergulasch, Thunfischsteak, Garnelen, Forelle, Kabeljau, Vegetarische Würstchen, Veggie-Burger, Burger Patties,
     Hähnchenbrustfilet, Geflügelwurst`,
   tiefkuehl: `Tiefkühlpizza, Pizza, Pommes, Pommes frites, Kroketten, Fischstäbchen, Rahmspinat, Tiefkühlgemüse,
     Erbsen tiefgekühlt, Beerenmischung, Tiefkühlbeeren, Eis, Eiscreme, Speiseeis, Stieleis, Eiswürfel, Kräuter tiefgekühlt,
     Baguettes tiefgekühlt, Chicken Nuggets, Nuggets, Lasagne, Flammkuchen, Rösti, Kaisergemüse, Buttergemüse`,
   vorrat: `Nudeln, Spaghetti, Penne, Fusilli, Spirelli, Farfalle, Makkaroni, Lasagneplatten, Bandnudeln, Reis,
     Basmatireis, Jasminreis, Risottoreis, Couscous, Bulgur, Quinoa, Linsen, Rote Linsen, Kichererbsen, Kidneybohnen,
-    Weiße Bohnen, Dosentomaten, Passierte Tomaten, Tomaten passiert, Stückige Tomaten, Tomatenmark, Dosenmais,
+    Weiße Bohnen, Schwarze Bohnen, Röstzwiebeln, Dosentomaten, Passierte Tomaten, Tomaten passiert, Stückige Tomaten, Tomatenmark, Dosenmais,
     Thunfisch, Ravioli, Suppe, Brühe, Gemüsebrühe, Hühnerbrühe, Fertiggericht, Tütensuppe, Instantnudeln, Ketchup,
     Mayonnaise, Mayo, Senf, Remoulade, Grillsoße, Barbecuesoße, Sojasoße, Sojasauce, Pastasoße, Tomatensoße,
     Kartoffelpüree, Semmelbrösel, Paniermehl, Gewürzgurken, Essiggurken, Oliven, Kapern, Apfelmus,
@@ -57,7 +57,7 @@ const LIST = {
   backen: `Mehl, Weizenmehl, Dinkelmehl, Zucker, Puderzucker, Brauner Zucker, Vanillezucker, Backpulver, Hefe,
     Trockenhefe, Natron, Speisestärke, Stärke, Kakaopulver, Backkakao, Schokotropfen, Kuvertüre, Streusel, Mandeln,
     Gemahlene Mandeln, Haselnüsse, Walnüsse, Rosinen, Salz, Meersalz, Pfeffer, Paprikapulver, Curry, Currypulver,
-    Zimt, Muskat, Oregano, Thymian, Rosmarin, Chili, Chiliflocken, Kreuzkümmel, Gewürze, Gewürz, Öl, Olivenöl,
+    Zimt, Muskat, Majoran, Kürbiskerne, Sonnenblumenkerne, Oregano, Thymian, Rosmarin, Chili, Chiliflocken, Kreuzkümmel, Gewürze, Gewürz, Öl, Olivenöl,
     Sonnenblumenöl, Rapsöl, Bratöl, Essig, Balsamico, Apfelessig, Kokosöl, Honig, Sirup, Ahornsirup, Gelatine,
     Puddingpulver, Tortenguss`,
   fruehstueck: `Müsli, Haferflocken, Cornflakes, Cerealien, Granola, Marmelade, Konfitüre, Nutella, Nussnougatcreme,
@@ -102,7 +102,7 @@ export function seedProducts() {
 export const QUICK_DEFAULTS = ['Milch', 'Brot', 'Eier', 'Butter', 'Käse', 'Bananen', 'Äpfel', 'Wasser', 'Toilettenpapier', 'Nudeln'];
 
 const UNITS =
-  'x|stk|stück|st|kg|g|gr|l|ml|liter|pck|pack|packung|packungen|pkg|fl|flasche|flaschen|kiste|kisten|kasten|dose|dosen|becher|bund|netz|beutel|glas|gläser|tüte|tüten|rolle|rollen|großpackung|groß|klein|große|kleine|grosse';
+  'x|el|tl|prise|prisen|päckchen|pck|stange|stangen|scheibe|scheiben|zehe|zehen|handvoll|stk|stück|st|kg|g|gr|l|ml|liter|pck|pack|packung|packungen|pkg|fl|flasche|flaschen|kiste|kisten|kasten|dose|dosen|becher|bund|netz|beutel|glas|gläser|tüte|tüten|rolle|rollen|großpackung|groß|klein|große|kleine|grosse';
 const UNIT_RE = new RegExp(`(^|\\s)(${UNITS})(?=\\s|$)`, 'g');
 
 // "2 kg Äpfel (bio)" → "äpfel bio"

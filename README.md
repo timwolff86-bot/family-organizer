@@ -7,10 +7,12 @@ Beim Öffnen erscheint immer der heutige Tag mit:
   für eine oder mehrere Personen. Jede/r kann abhaken.
 - **Terminen**: einmalig oder wöchentlich (z. B. Pickleball Mi + Fr). Einzelne Termine einer Serie
   können „ausfallen“.
-- **Essen** für den Tag
+- **Essen** für den Tag – frei eingetragen oder aus dem **Kochbuch** gewählt, Zutaten mit einem Tipp
+  auf die Einkaufsliste
 - **Aufgaben** mit Filter „Alle / Meine“
 
-Dazu gibt es eine **Wochenansicht** (inkl. Essensplanung), eine **Einkaufsliste** mit automatischen
+Dazu gibt es eine **Wochenansicht** (inkl. Essensplanung und „Zutaten der Woche einkaufen“), ein
+**Kochbuch** (ca. 35 Familienrezepte zum Start, eigene Gerichte, Favoriten), eine **Einkaufsliste** mit automatischen
 Supermarkt-Kategorien (Produktkatalog in der Datenbank, lernt Korrekturen dazu) und unter **Mehr** die
 Verwaltung von Familie (mit Profilbildern), Terminen, Erinnerungen und Aufgaben.
 
@@ -63,6 +65,7 @@ Live-Aktualisierung zwischen den Geräten. Ein Service Worker macht die App inst
 | `store.js` | Speichern/Laden (Supabase oder lokal) |
 | `dates.js` | Datums-Helfer |
 | `products.js` | Einkaufs-Kategorien, Start-Produktkatalog, Erkennung |
+| `recipes.js` | Kochbuch-Kategorien und Start-Rezepte |
 | `config.js` | Supabase-Zugang |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Installierbare App |
 | `supabase/schema.sql` | Datenbank-Tabellen und Zugriffsregeln |

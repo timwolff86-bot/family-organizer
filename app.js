@@ -1,6 +1,7 @@
 import * as store from './store.js';
 import * as D from './dates.js';
 import { CATEGORIES, QUICK_DEFAULTS, categoryOf, classify, normalize, seedProducts } from './products.js';
+import { RECIPE_CATEGORIES, SEED_RECIPES, STAPLES, recipeCategory } from './recipes.js';
 
 /* ================= Zustand ================= */
 
@@ -435,10 +436,15 @@ function viewHeute() {
 
     <section>
       <h2>Essen</h2>
-      <div class="card meal">
-        <span class="meal-icon">🍽️</span>
-        <input id="meal-input" class="meal-input" data-day="${day}" value="${esc(meal?.text || '')}" placeholder="Was gibt es ${isToday ? 'heute' : 'an diesem Tag'}?" enterkeyhint="done" />
-      </div>
+      ${mealField(meal, day, `Was gibt es ${isToday ? 'heute' : 'an diesem Tag'}?`, 'done', 'card meal')}
+      ${
+        mealRecipe(meal)
+          ? `<div class="meal-actions">
+              <button class="link" data-action="open-recipe" data-id="${meal.recipe_id}">📖 Rezept ansehen</button>
+              <button class="link" data-action="ingredients" data-ids="${meal.recipe_id}">🛒 Zutaten auf die Liste</button>
+            </div>`
+          : ''
+      }
     </section>
 
     <section>
@@ -542,13 +548,237 @@ function viewWoche() {
             ${open ? `<div class="wline small muted">☐ ${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
           </div>
           </button>
-          <label class="week-meal">
-            <span>🍽️</span>
-            <input class="meal-input" data-day="${day}" value="${esc(meal?.text || '')}" placeholder="Essen eintragen" enterkeyhint="next" />
-          </label>
+          ${mealField(meal, day, 'Essen eintragen', 'next', 'week-meal')}
         </div>`;
     })
     .join('');
+}
+
+// Wochenansicht: oben ein Knopf für alle Zutaten der geplanten Gerichte
+function weekIngredientsButton() {
+  const ids = Array.from({ length: 7 }, (_, i) => D.addDays(state.weekStart, i))
+    .map((day) => mealRecipe(state.data.meals.find((m) => m.date === day))?.id)
+    .filter(Boolean);
+  if (!ids.length) return '';
+  return `<button class="btn ghost wide week-shop" data-action="ingredients" data-ids="${ids.join(',')}">
+    🛒 Zutaten für ${ids.length} ${ids.length === 1 ? 'Gericht' : 'Gerichte'} dieser Woche auf die Liste</button>`;
+}
+
+/* ================= Essen & Kochbuch ================= */
+
+const mealRecipe = (meal) => (meal?.recipe_id ? state.data.recipes.find((r) => r.id === meal.recipe_id) : null);
+const recipeEmoji = (r) => r?.emoji || recipeCategory(r?.category).emoji;
+
+// Eingabefeld fürs Essen + Knopf "aus dem Kochbuch wählen"
+function mealField(meal, day, placeholder, enter, cls) {
+  const r = mealRecipe(meal);
+  return `
+    <div class="${cls}">
+      <span class="meal-icon">${r ? recipeEmoji(r) : '🍽️'}</span>
+      <input class="meal-input" ${cls.includes('card') ? 'id="meal-input"' : ''} data-day="${day}" list="recipe-list"
+        value="${esc(meal?.text || '')}" placeholder="${esc(placeholder)}" enterkeyhint="${enter}" autocomplete="off" />
+      <button class="icon-btn book" data-action="pick-recipe" data-day="${day}" aria-label="Aus dem Kochbuch wählen">📖</button>
+    </div>`;
+}
+
+const recipeList = () =>
+  `<datalist id="recipe-list">${state.data.recipes.map((r) => `<option value="${esc(r.title)}"></option>`).join('')}</datalist>`;
+
+const sortedRecipes = () =>
+  [...state.data.recipes].sort((a, b) => b.favorite - a.favorite || a.title.localeCompare(b.title));
+
+const isStaple = (line) => {
+  const words = normalize(line).split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.every((w) => STAPLES.has(w));
+};
+
+const recipeMeta = (r) =>
+  [r.minutes ? `⏱ ${r.minutes} Min.` : '', r.servings ? `👥 ${r.servings}` : '', recipeCategory(r.category).label]
+    .filter(Boolean)
+    .join(' · ');
+
+function recipeRow(r, action = 'open-recipe', extra = '') {
+  return `
+    <li><button class="recipe-row" data-action="${action}" data-id="${r.id}" ${extra} data-search="${esc(r.title.toLowerCase())}">
+      <span class="recipe-emoji">${recipeEmoji(r)}</span>
+      <span class="grow-col">
+        <span class="title">${esc(r.title)} ${r.favorite ? '⭐' : ''}</span>
+        <span class="muted small">${esc(recipeMeta(r))}</span>
+      </span>
+    </button></li>`;
+}
+
+function viewKochbuch() {
+  if (state.data.missing?.includes('recipes')) {
+    return '<div class="banner">Datenbank-Update nötig: bitte supabase/update-5.sql in Supabase ausführen.</div>';
+  }
+  const f = state.recipeFilter || 'alle';
+  const filters = [
+    ['alle', 'Alle'],
+    ['fav', '⭐ Favoriten'],
+    ['eigene', '✍️ Eigene'],
+    ...RECIPE_CATEGORIES.map((c) => [c.id, `${c.emoji} ${c.label}`]),
+  ];
+  const list = sortedRecipes().filter((r) =>
+    f === 'alle' ? true : f === 'fav' ? r.favorite : f === 'eigene' ? r.own : r.category === f
+  );
+  return `
+    <div class="card add-item">
+      <input type="search" id="recipe-search" placeholder="Gericht suchen …" autocomplete="off" />
+      <button class="btn primary" data-action="new-recipe" aria-label="Eigenes Gericht">+</button>
+    </div>
+    <div class="chip-row">${filters
+      .map(([k, l]) => `<button class="filter-chip ${f === k ? 'on' : ''}" data-action="recipe-filter" data-filter="${k}">${l}</button>`)
+      .join('')}</div>
+    ${
+      list.length
+        ? `<ul class="card list recipes" id="recipe-list-ul">${list.map((r) => recipeRow(r)).join('')}</ul>`
+        : `<p class="empty">${f === 'eigene' ? 'Noch keine eigenen Gerichte – mit ＋ anlegen.' : 'Keine Gerichte gefunden.'}</p>`
+    }
+    <button class="btn ghost wide" data-action="new-recipe">✍️ Eigenes Gericht anlegen</button>`;
+}
+
+// Eigene Sheets ohne "Sichern" (Detail, Auswahl, Zutaten)
+function openPanel(title, inner, right = '') {
+  $('#sheet-root').innerHTML = `
+    <div class="backdrop" data-action="close-sheet"></div>
+    <div class="sheet" role="dialog" aria-label="${esc(title)}">
+      <div class="sheet-head">
+        <button type="button" class="link" data-action="close-sheet">Schließen</button>
+        <strong>${esc(title)}</strong>
+        <span>${right}</span>
+      </div>
+      <div class="sheet-body">${inner}</div>
+    </div>`;
+  document.body.classList.add('sheet-open');
+}
+
+function recipeDetail(r) {
+  const steps = (r.steps || '').split('\n').filter((x) => x.trim());
+  openPanel(
+    r.title,
+    `
+    <div class="recipe-head">
+      <span class="recipe-emoji big">${recipeEmoji(r)}</span>
+      <div>
+        <div class="muted small">${esc(recipeMeta(r))}</div>
+        <button class="link" data-action="toggle-fav" data-id="${r.id}">${r.favorite ? '⭐ Favorit' : '☆ Als Favorit merken'}</button>
+      </div>
+    </div>
+
+    <div class="plan-row card">
+      <span>📅</span>
+      <input type="date" id="plan-date" value="${state.date}" />
+      <button class="btn primary" data-action="plan-recipe" data-id="${r.id}">Einplanen</button>
+    </div>
+
+    <h3>Zutaten <span class="muted small">(für ${r.servings || 4} Personen)</span></h3>
+    ${ingredientChecklist([r])}
+    <button class="btn primary wide" data-action="add-ingredients">🛒 Ausgewählte auf die Einkaufsliste</button>
+
+    ${steps.length ? `<h3>Zubereitung</h3><ol class="steps">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}`,
+    `<button class="link strong" data-action="edit-recipe" data-id="${r.id}">Bearbeiten</button>`
+  );
+}
+
+// Zutaten zum Ankreuzen. Vorrat (Salz, Öl …) und schon Eingekauftes ist nicht vorausgewählt.
+function ingredientChecklist(recipes) {
+  const open = new Set(state.data.shopping_items.filter((i) => !i.done).map((i) => normalize(i.name)));
+  return recipes
+    .map(
+      (r) => `
+      ${recipes.length > 1 ? `<div class="field-label">${recipeEmoji(r)} ${esc(r.title)}</div>` : ''}
+      <ul class="card ing-list">
+        ${(r.ingredients || [])
+          .map((line) => {
+            const onList = open.has(normalize(line));
+            const checked = !onList && !isStaple(line);
+            return `<li><label>
+              <input type="checkbox" name="ing" value="${esc(line)}" ${checked ? 'checked' : ''} />
+              <span>${esc(line)}</span>
+              ${onList ? '<span class="muted small">schon auf der Liste</span>' : isStaple(line) ? '<span class="muted small">Vorrat?</span>' : ''}
+            </label></li>`;
+          })
+          .join('')}
+      </ul>`
+    )
+    .join('');
+}
+
+function ingredientsPanel(ids) {
+  const recipes = ids.map((id) => state.data.recipes.find((r) => r.id === id)).filter(Boolean);
+  if (!recipes.length) return;
+  openPanel(
+    'Zutaten einkaufen',
+    `${ingredientChecklist(recipes)}
+     <button class="btn primary wide" data-action="add-ingredients">🛒 Ausgewählte auf die Einkaufsliste</button>`
+  );
+}
+
+function recipePicker(day) {
+  openPanel(
+    `Essen am ${D.formatShort(day)}`,
+    `
+    <input type="search" id="recipe-search" placeholder="Gericht suchen …" autocomplete="off" />
+    <ul class="card list recipes" id="recipe-list-ul">
+      ${sortedRecipes().map((r) => recipeRow(r, 'choose-recipe', `data-day="${day}"`)).join('')}
+    </ul>
+    <button class="btn ghost wide" data-action="new-recipe">✍️ Neues Gericht anlegen</button>
+    ${state.data.meals.find((m) => m.date === day)?.text ? `<button class="btn danger wide" data-action="clear-meal" data-day="${day}">Essen für diesen Tag entfernen</button>` : ''}`
+  );
+}
+
+function setMeal(day, recipe) {
+  const existing = state.data.meals.find((m) => m.date === day);
+  const row = { date: day, text: recipe ? recipe.title : null };
+  if (recipe || existing?.recipe_id) row.recipe_id = recipe?.id || null;
+  save('meals', row, 'date');
+}
+
+function recipeForm(r) {
+  const isNew = !r;
+  r ||= { category: 'sonstiges', servings: 4, ingredients: [], own: true };
+  const inner = `
+    <div class="row">
+      <label class="emoji-field">Symbol<input name="emoji" value="${esc(r.emoji || '')}" placeholder="${recipeCategory(r.category).emoji}" maxlength="4" /></label>
+      <label class="grow">Name des Gerichts<input name="title" value="${esc(r.title || '')}" required placeholder="z. B. Omas Gulasch" /></label>
+    </div>
+    <label>Kategorie<select name="category">${RECIPE_CATEGORIES.map(
+      (c) => `<option value="${c.id}" ${c.id === r.category ? 'selected' : ''}>${c.emoji} ${c.label}</option>`
+    ).join('')}</select></label>
+    <div class="row">
+      <label>Dauer (Min.)<input type="number" name="minutes" min="0" inputmode="numeric" value="${esc(r.minutes ?? '')}" /></label>
+      <label>Personen<input type="number" name="servings" min="1" inputmode="numeric" value="${esc(r.servings ?? '')}" /></label>
+    </div>
+    <label>Zutaten <span class="muted small">– eine pro Zeile, Menge vorne (z. B. „500 g Hackfleisch“)</span>
+      <textarea name="ingredients" rows="8">${esc((r.ingredients || []).join('\n'))}</textarea></label>
+    <label>Zubereitung <span class="muted small">– ein Schritt pro Zeile</span>
+      <textarea name="steps" rows="6">${esc(r.steps || '')}</textarea></label>
+    <label class="check-line"><input type="checkbox" name="favorite" ${r.favorite ? 'checked' : ''}/> ⭐ Favorit</label>`;
+  const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-recipe" data-id="${r.id}">Gericht löschen</button>`;
+  openSheet(
+    isNew ? 'Neues Gericht' : 'Gericht bearbeiten',
+    inner,
+    (f) => {
+      const num = (k) => (f.get(k) ? Number(f.get(k)) : null);
+      const saved = save('recipes', {
+        id: r.id,
+        title: f.get('title').trim(),
+        emoji: f.get('emoji').trim() || null,
+        category: f.get('category'),
+        minutes: num('minutes'),
+        servings: num('servings'),
+        ingredients: f.get('ingredients').split('\n').map((x) => x.trim()).filter(Boolean),
+        steps: f.get('steps').trim() || null,
+        favorite: f.get('favorite') === 'on',
+        own: r.own ?? true,
+      });
+      closeSheet();
+      // Gerade angelegtes/geändertes Gericht direkt anzeigen
+      saved.then((row) => row && recipeDetail(state.data.recipes.find((x) => x.id === row.id) || row));
+    },
+    extra
+  );
 }
 
 /* ================= Einkauf ================= */
@@ -588,10 +818,10 @@ function rememberProduct(name, category, { countUse = true } = {}) {
   );
 }
 
-function addItem(name) {
+function addItem(name, { countUse = true } = {}) {
   const category = classify(name, state.data.products);
   save('shopping_items', { name, category, done: false });
-  rememberProduct(name, category);
+  if (countUse) rememberProduct(name, category);
 }
 
 function categoryHint(name) {
@@ -831,7 +1061,7 @@ function header() {
         <button class="link" data-action="edit-member" data-id="${state.personId}">Bearbeiten</button>
       </header>`;
   }
-  const titles = { einkauf: 'Einkauf', mehr: 'Mehr' };
+  const titles = { einkauf: 'Einkauf', mehr: 'Mehr', kochbuch: 'Kochbuch' };
   return `<header class="top"><h1>${titles[state.view]}</h1></header>`;
 }
 
@@ -839,6 +1069,7 @@ function tabbar() {
   const tabs = [
     ['heute', '📅', 'Heute'],
     ['woche', '🗓️', 'Woche'],
+    ['kochbuch', '📖', 'Kochbuch'],
     ['einkauf', '🛒', 'Einkauf'],
     ['mehr', '☰', 'Mehr'],
   ];
@@ -875,12 +1106,13 @@ function render() {
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: viewWoche, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson };
+  const views = { heute: viewHeute, woche: () => weekIngredientsButton() + viewWoche(), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
     ${store.isCloud ? '' : '<div class="local-note">Lokaler Modus – Daten nur auf diesem Gerät</div>'}
     <main id="main" class="view-${state.view}">${views[state.view]()}</main>
+    ${recipeList()}
     ${state.view === 'heute' || state.view === 'woche' ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
     ${tabbar()}`;
   window.scrollTo(0, scroll);
@@ -1289,6 +1521,49 @@ const actions = {
   },
   'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
   'edit-member': (d) => memberForm(member(d.id)),
+  'recipe-filter': (d) => {
+    state.recipeFilter = d.filter;
+    render();
+  },
+  'new-recipe': () => recipeForm(null),
+  'open-recipe': (d) => {
+    const r = state.data.recipes.find((x) => x.id === d.id);
+    if (r) recipeDetail(r);
+  },
+  'edit-recipe': (d) => recipeForm(state.data.recipes.find((x) => x.id === d.id)),
+  'delete-recipe': (d) => {
+    if (!confirm('Gericht aus dem Kochbuch löschen?')) return;
+    closeSheet();
+    del('recipes', d.id);
+  },
+  'toggle-fav': (d) => {
+    const r = state.data.recipes.find((x) => x.id === d.id);
+    if (!r) return;
+    save('recipes', { id: r.id, favorite: !r.favorite });
+    recipeDetail(state.data.recipes.find((x) => x.id === d.id));
+  },
+  'plan-recipe': (d) => {
+    const r = state.data.recipes.find((x) => x.id === d.id);
+    const day = $('#plan-date')?.value || state.date;
+    setMeal(day, r);
+    toast(`${r.title} am ${D.formatShort(day)} eingeplant`);
+  },
+  'pick-recipe': (d) => recipePicker(d.day),
+  'choose-recipe': (d) => {
+    setMeal(d.day, state.data.recipes.find((x) => x.id === d.id));
+    closeSheet();
+  },
+  'clear-meal': (d) => {
+    setMeal(d.day, null);
+    closeSheet();
+  },
+  ingredients: (d) => ingredientsPanel(d.ids.split(',')),
+  'add-ingredients': () => {
+    const lines = [...document.querySelectorAll('#sheet-root input[name="ing"]:checked')].map((i) => i.value);
+    lines.forEach((line) => addItem(line, { countUse: false }));
+    closeSheet();
+    toast(lines.length ? `${lines.length} ${lines.length === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` : 'Nichts ausgewählt');
+  },
   'open-person': (d) => {
     if (state.view !== 'person') state.prevView = state.view;
     state.personId = d.id;
@@ -1435,6 +1710,14 @@ document.addEventListener('change', async (e) => {
 // Beim Tippen im Einkauf anzeigen, in welche Kategorie der Artikel kommt
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'recipe-search') {
+    const q = el.value.trim().toLowerCase();
+    const root = el.closest('.sheet') || $('#main');
+    root.querySelectorAll('#recipe-list-ul li').forEach((li) => {
+      li.hidden = q && !li.querySelector('[data-search]').dataset.search.includes(q);
+    });
+    return;
+  }
   if (el.form?.dataset.form === 'add-item' && el.name === 'name') {
     const hint = $('#cat-hint');
     if (hint) hint.textContent = categoryHint(el.value) ? `→ ${categoryHint(el.value)}` : '';
@@ -1449,7 +1732,13 @@ document.addEventListener(
     if (el.classList?.contains('meal-input')) {
       const text = el.value.trim();
       const existing = state.data.meals.find((m) => m.date === el.dataset.day);
-      if ((existing?.text || '') !== text) save('meals', { date: el.dataset.day, text: text || null }, 'date', { quiet: true });
+      if ((existing?.text || '') !== text) {
+        // Passt der Text genau zu einem Gericht im Kochbuch, wird es verknüpft
+        const recipe = state.data.recipes.find((r) => r.title.toLowerCase() === text.toLowerCase());
+        const row = { date: el.dataset.day, text: text || null };
+        if (recipe || existing?.recipe_id) row.recipe_id = recipe?.id || null;
+        save('meals', row, 'date', { quiet: true });
+      }
     }
     else if (state.pendingRender) setTimeout(render, 0);
   },
@@ -1572,14 +1861,33 @@ async function seedIfEmpty() {
 }
 
 // Produktkatalog einmalig in die Datenbank schreiben (läuft im Hintergrund)
-async function seedProductsIfEmpty() {
-  if (state.data.products.length || state.data.missing?.includes('products')) return;
-  const rows = seedProducts().map((p) => ({ id: store.uuid(), ...p, uses: 0 }));
-  state.data.products = rows;
-  try {
-    await store.upsertMany('products', rows, 'key', true);
-  } catch (e) {
-    console.error(e);
+// Start-Kataloge in die Datenbank schreiben (läuft im Hintergrund):
+// Produkte: fehlende ergänzen. Rezepte: nur, wenn das Kochbuch noch leer ist.
+async function seedCatalogs() {
+  if (!state.data.missing?.includes('products')) {
+    const have = new Set(state.data.products.map((p) => p.key));
+    const rows = seedProducts()
+      .filter((p) => !have.has(p.key))
+      .map((p) => ({ id: store.uuid(), ...p, uses: 0 }));
+    if (rows.length) {
+      state.data.products.push(...rows);
+      try {
+        await store.upsertMany('products', rows, 'key', true);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }
+  if (!state.data.missing?.includes('recipes') && !state.data.recipes.length && !lsGet('fo-recipes-seeded')) {
+    const rows = SEED_RECIPES.map((r) => ({ id: store.uuid(), ...r, favorite: false, own: false }));
+    state.data.recipes.push(...rows);
+    try {
+      await store.upsertMany('recipes', rows);
+      lsSet('fo-recipes-seeded', '1');
+    } catch (e) {
+      console.error(e);
+    }
+    render();
   }
 }
 
@@ -1591,7 +1899,7 @@ async function startData() {
     console.error(e);
     toast('Startdaten konnten nicht angelegt werden.');
   }
-  seedProductsIfEmpty();
+  seedCatalogs();
   store.subscribe(debounce(() => reload(), 400));
   render();
 }

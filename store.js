@@ -13,6 +13,7 @@ export const TABLES = [
   'meals',
   'shopping_items',
   'products',
+  'recipes',
 ];
 
 // Tabellen mit vielen Einträgen pro Tag: nur die letzten 60 Tage + Zukunft laden.
@@ -103,6 +104,7 @@ const ON_DELETE = {
   ],
   events: [['event_occurrences', 'event_id', 'cascade']],
   tasks: [['task_completions', 'task_id', 'cascade']],
+  recipes: [['meals', 'recipe_id', 'null']],
 };
 
 /* ---------- gemeinsame Schnittstelle ---------- */

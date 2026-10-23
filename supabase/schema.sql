@@ -110,12 +110,28 @@ alter table public.members add column if not exists avatar text;
 -- Mehrere Personen pro Termin (Update 4)
 alter table public.events add column if not exists member_ids uuid[];
 
+-- Kochbuch (Update 5)
+create table if not exists public.recipes (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  emoji text,
+  category text not null default 'sonstiges',
+  minutes int,
+  servings int,
+  ingredients text[] not null default '{}',
+  steps text,
+  favorite boolean not null default false,
+  own boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.meals add column if not exists recipe_id uuid references public.recipes (id) on delete set null;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
 declare t text;
 begin
-  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products'] loop
+  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "familie" on public.%I', t);
     execute format('create policy "familie" on public.%I for all to authenticated using (true) with check (true)', t);
