@@ -3,18 +3,19 @@
 Unser gemeinsamer Haushaltsplan als Web-App fürs Handy (iPhone und Android).
 Beim Öffnen erscheint immer der heutige Tag mit:
 
-- **Terminen** inkl. „Wer fährt hin / zurück?“. Fehlt ein Fahrer, wird der Termin orange markiert,
-  und oben steht, wie viele Fahrten in den nächsten 7 Tagen noch offen sind.
+- **Erinnerungen**: To-dos für einen Tag (Uhrzeit optional), einmalig oder wiederkehrend,
+  für eine oder mehrere Personen. Jede/r kann abhaken.
+- **Terminen**: einmalig oder wöchentlich (z. B. Pickleball Mi + Fr). Einzelne Termine einer Serie
+  können „ausfallen“.
 - **Essen** für den Tag
-- **Aufgaben** mit Filter „Meine“ und „🛋️ Sofa“ (Aufgaben, die man im Sitzen erledigen kann)
+- **Aufgaben** mit Filter „Alle / Meine“
 
-Dazu gibt es eine **Wochenansicht**, eine **Einkaufsliste** (Rewe / Getränke / Sonstiges, mit „Kopieren“
-zum Einfügen in die Rewe-App) und unter **Mehr** die Verwaltung von Familie, Helfern, Terminen und Aufgaben.
+Dazu gibt es eine **Wochenansicht** (inkl. Essensplanung), eine **Einkaufsliste** mit automatischen
+Supermarkt-Kategorien (Produktkatalog in der Datenbank, lernt Korrekturen dazu) und unter **Mehr** die
+Verwaltung von Familie (mit Profilbildern), Terminen, Erinnerungen und Aufgaben.
 
 Bedienung: Wischen nach links/rechts wechselt den Tag, Tippen auf das Datum öffnet einen Kalender,
-das ＋ legt Termine oder Aufgaben an. Wöchentliche Termine (z. B. Pickleball Mi + Fr) haben einen
-Standard-Fahrer, der sich für einzelne Tage ändern lässt. Einzelne Termine einer Serie können
-„ausfallen“.
+das ＋ legt Termine, Erinnerungen oder Aufgaben an.
 
 ## Einrichtung
 
@@ -22,7 +23,8 @@ Standard-Fahrer, der sich für einzelne Tage ändern lässt. Einzelne Termine ei
 
 1. Im [Supabase-Dashboard](https://supabase.com/dashboard) ein neues Projekt anlegen
    (Region z. B. Frankfurt).
-2. **SQL Editor → New query**: den Inhalt von [`supabase/schema.sql`](supabase/schema.sql) einfügen und **Run** drücken.
+2. **SQL Editor → New query**: den Inhalt von [`supabase/schema.sql`](supabase/schema.sql) einfügen und **Run** drücken
+   (bei der RLS-Warnung „Run without RLS“ – das Skript schaltet den Schutz selbst ein).
 3. **Authentication → Users → Add user → Create new user**: ein Konto für jede Person anlegen
    (E-Mail + Passwort, Haken bei „Auto Confirm User“).
 4. **Authentication → Sign In / Providers**: „Allow new users to sign up“ **ausschalten**.
@@ -60,6 +62,7 @@ Live-Aktualisierung zwischen den Geräten. Ein Service Worker macht die App inst
 | `app.js` | Oberfläche und Logik |
 | `store.js` | Speichern/Laden (Supabase oder lokal) |
 | `dates.js` | Datums-Helfer |
+| `products.js` | Einkaufs-Kategorien, Start-Produktkatalog, Erkennung |
 | `config.js` | Supabase-Zugang |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Installierbare App |
 | `supabase/schema.sql` | Datenbank-Tabellen und Zugriffsregeln |

@@ -263,70 +263,23 @@ function eventsOn(day) {
       occ,
       day,
       weekly,
-      driver_to: occ ? occ.driver_to : ev.driver_to,
-      driver_back: occ ? occ.driver_back : ev.driver_back,
-      skip_to: !!(occ ? occ.skip_to : ev.skip_to),
-      skip_back: !!(occ ? occ.skip_back : ev.skip_back),
       cancelled: occ?.cancelled || false,
     });
   }
   return out.sort((a, b) => (a.ev.start_time || '99').localeCompare(b.ev.start_time || '99') || a.ev.title.localeCompare(b.ev.title));
 }
 
-const missingDriver = (o) =>
-  o.ev.needs_driver && !o.cancelled && ((!o.skip_to && !o.driver_to) || (!o.skip_back && !o.driver_back));
-
-const SKIP = 'skip'; // Wert im Auswahlfeld für "nicht nötig"
-const skipField = (field) => (field === 'driver_to' ? 'skip_to' : 'skip_back');
-
-// Auswahlfeld-Wert → { driver_x, skip_x }
-const driverPatch = (field, value) => ({
-  [field]: value && value !== SKIP ? value : null,
-  [skipField(field)]: value === SKIP,
-});
-
 function setOccurrence(o, patch) {
-  const row = {
-    event_id: o.ev.id,
-    date: o.day,
-    driver_to: o.driver_to || null,
-    driver_back: o.driver_back || null,
-    skip_to: o.skip_to,
-    skip_back: o.skip_back,
-    cancelled: o.cancelled,
-    ...patch,
-  };
+  const row = { event_id: o.ev.id, date: o.day, cancelled: o.cancelled, ...patch };
   if (o.occ) row.id = o.occ.id;
   return save('event_occurrences', row, 'event_id,date');
-}
-
-// Optionen: offen / nicht nötig / alle, die fahren können
-function driverOptions(current, skip) {
-  const options = members().filter((m) => m.drives || m.id === current);
-  return `
-    <option value="">– offen –</option>
-    <option value="${SKIP}" ${skip ? 'selected' : ''}>entfällt</option>
-    ${options.map((m) => `<option value="${m.id}" ${!skip && m.id === current ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}`;
-}
-
-function driverSelect(o, field, label) {
-  const skip = o[skipField(field)];
-  const missing = !skip && !o[field];
-  return `
-    <label class="drv ${missing ? 'missing' : ''} ${skip ? 'skip' : ''}">
-      <span>${label}</span>
-      <select data-change="driver" data-event="${o.ev.id}" data-day="${o.day}" data-field="${field}">
-        ${driverOptions(o[field], skip)}
-      </select>
-    </label>`;
 }
 
 function eventCard(o) {
   const { ev } = o;
   const time = ev.start_time ? `${D.hm(ev.start_time)}${ev.end_time ? `–${D.hm(ev.end_time)}` : ''}` : '–';
-  const warn = missingDriver(o);
   return `
-    <article class="card event ${o.cancelled ? 'cancelled' : ''} ${warn ? 'warn' : ''}">
+    <article class="card event ${o.cancelled ? 'cancelled' : ''}">
       <button class="event-main" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
         <div class="time">${esc(time)}</div>
         <div class="body">
@@ -336,12 +289,6 @@ function eventCard(o) {
           ${ev.notes ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
         </div>
       </button>
-      ${
-        ev.needs_driver && !o.cancelled
-          ? `<div class="drivers">${warn ? '<span class="warn-label">🚗 Fahrer fehlt</span>' : '<span class="ok-label">🚗</span>'}
-               ${driverSelect(o, 'driver_to', 'Hin')}${driverSelect(o, 'driver_back', 'Zurück')}</div>`
-          : ''
-      }
     </article>`;
 }
 
@@ -435,23 +382,12 @@ function viewHeute() {
   const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' });
   const meal = state.data.meals.find((m) => m.date === day);
 
-  // Offene Fahrten in den nächsten 7 Tagen
-  let openRides = 0;
-  if (isToday) {
-    for (let i = 0; i < 7; i++) openRides += eventsOn(D.addDays(day, i)).filter(missingDriver).length;
-  }
-
   const filters = [
     ['alle', 'Alle'],
     ['meine', meMember() ? `Meine` : 'Meine'],
   ];
 
   return `
-    ${
-      openRides
-        ? `<button class="banner" data-action="goto-week">⚠️ ${openRides} ${openRides === 1 ? 'Fahrt' : 'Fahrten'} in den nächsten 7 Tagen noch ohne Fahrer</button>`
-        : ''
-    }
     ${
       reminders.length
         ? `<section>
@@ -517,7 +453,6 @@ function viewWoche() {
                       (o) => `<div class="wline ${o.cancelled ? 'cancelled' : ''}">
                         <span class="muted">${o.ev.start_time ? D.hm(o.ev.start_time) : '–'}</span>
                         ${esc(o.ev.title)} ${chip(o.ev.member_id)}
-                        ${missingDriver(o) ? '<span class="tag red">🚗 offen</span>' : ''}
                       </div>`
                     )
                     .join('')
@@ -710,7 +645,6 @@ function viewMehr() {
             (m) => `<li><button data-action="edit-member" data-id="${m.id}">
               ${avatar(m)}
               <span class="grow">${esc(m.name)} <span class="muted small">${ROLES[m.role] || ''}</span></span>
-              ${m.drives ? '<span title="Kann fahren">🚗</span>' : ''}
             </button></li>`
           )
           .join('')}
@@ -960,7 +894,7 @@ function updateRepeatVisibility(form) {
 
 function eventForm(ev, day) {
   const isNew = !ev;
-  ev ||= { needs_driver: true, date: day || state.date };
+  ev ||= { date: day || state.date };
   const weekly = ev.weekdays?.length > 0;
   const o = !isNew && day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
 
@@ -981,11 +915,6 @@ function eventForm(ev, day) {
       <label>Bis<input type="time" name="end_time" value="${esc(D.hm(ev.end_time))}" /></label>
     </div>
     <label>Wo? (optional)<input name="location" value="${esc(ev.location || '')}" /></label>
-    <label class="check-line"><input type="checkbox" name="needs_driver" ${ev.needs_driver ? 'checked' : ''}/> Jemand muss fahren</label>
-    <div class="row" data-driver>
-      <label>${weekly ? 'Standard ' : ''}Hin<select name="driver_to">${driverOptions(ev.driver_to, ev.skip_to)}</select></label>
-      <label>${weekly ? 'Standard ' : ''}Zurück<select name="driver_back">${driverOptions(ev.driver_back, ev.skip_back)}</select></label>
-    </div>
     <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>`;
 
   const extra = isNew
@@ -1016,9 +945,6 @@ function eventForm(ev, day) {
         start_time: f.get('start_time') || null,
         end_time: f.get('end_time') || null,
         location: f.get('location').trim() || null,
-        needs_driver: f.get('needs_driver') === 'on',
-        ...driverPatch('driver_to', f.get('driver_to')),
-        ...driverPatch('driver_back', f.get('driver_back')),
         notes: f.get('notes').trim() || null,
       });
       closeSheet();
@@ -1026,14 +952,8 @@ function eventForm(ev, day) {
     extra
   );
   updateRepeatVisibility($('#sheet-root form'));
-  updateDriverVisibility($('#sheet-root form'));
 }
 
-function updateDriverVisibility(form) {
-  const box = form.querySelector('[data-driver]');
-  const cb = form.querySelector('input[name="needs_driver"]');
-  if (box && cb) box.hidden = !cb.checked;
-}
 
 // Mehrfachauswahl von Personen ("für wen?")
 function peoplePicker(selected) {
@@ -1155,7 +1075,6 @@ function memberForm(m) {
     <label>Rolle<select name="role">${Object.entries(ROLES)
       .map(([k, l]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${l}</option>`)
       .join('')}</select></label>
-    <label class="check-line"><input type="checkbox" name="drives" ${m.drives ? 'checked' : ''}/> 🚗 Kann gerade Auto fahren</label>
     <div class="colors">${COLORS.map(
       (c) => `<label><input type="radio" name="color" value="${c}" ${m.color === c ? 'checked' : ''}/><span style="background:${c}"></span></label>`
     ).join('')}</div>`;
@@ -1168,7 +1087,6 @@ function memberForm(m) {
         id: m.id,
         name: f.get('name').trim(),
         role: f.get('role'),
-        drives: f.get('drives') === 'on',
         color: f.get('color') || m.color,
         sort: m.sort ?? 0,
       };
@@ -1378,11 +1296,6 @@ document.addEventListener('change', async (e) => {
     render();
     return;
   }
-  if (el.dataset.change === 'driver') {
-    const o = eventsOn(el.dataset.day).find((x) => x.ev.id === el.dataset.event);
-    if (o) setOccurrence(o, driverPatch(el.dataset.field, el.value));
-    return;
-  }
   if (el.dataset.change === 'me') {
     state.me = el.value || null;
     lsSet('fo-me', state.me);
@@ -1390,7 +1303,6 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
-  if (el.name === 'needs_driver') updateDriverVisibility(el.form);
 });
 
 // Beim Tippen im Einkauf anzeigen, in welche Kategorie der Artikel kommt
@@ -1518,9 +1430,9 @@ async function seedIfEmpty() {
     rows.push(['members', { id: ids[key], name, role, drives, color, sort: i }]);
   });
   rows.push(
-    ['events', { id: store.uuid(), title: 'Schlagzeug', member_id: ids.k12, weekdays: [1], needs_driver: true, notes: 'Uhrzeit eintragen' }],
-    ['events', { id: store.uuid(), title: 'Pickleball', member_id: ids.k12, weekdays: [3, 5], needs_driver: true, notes: 'Uhrzeit eintragen' }],
-    ['events', { id: store.uuid(), title: 'Klavier', member_id: ids.k9, weekdays: [5], needs_driver: true, notes: 'Uhrzeit und Kind prüfen' }],
+    ['events', { id: store.uuid(), title: 'Schlagzeug', member_id: ids.k12, weekdays: [1], notes: 'Uhrzeit eintragen' }],
+    ['events', { id: store.uuid(), title: 'Pickleball', member_id: ids.k12, weekdays: [3, 5], notes: 'Uhrzeit eintragen' }],
+    ['events', { id: store.uuid(), title: 'Klavier', member_id: ids.k9, weekdays: [5], notes: 'Uhrzeit und Kind prüfen' }],
     ['tasks', { id: store.uuid(), title: 'Essensplan für nächste Woche machen', assignee: ids.papa, weekdays: [7] }],
     ['tasks', { id: store.uuid(), title: 'Rewe-Lieferung bestellen', assignee: ids.papa, weekdays: [7] }],
     ['tasks', { id: store.uuid(), title: 'Getränke bei Flaschenpost bestellen', assignee: ids.papa }]
