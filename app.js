@@ -324,7 +324,7 @@ function eventsOn(day) {
     const o = { ev, occ, day, weekly, multi, cancelled: occ?.cancelled || false };
     o.time = timeLabel(o);
     // Sortierung: Ganztägiges oben, dann nach Uhrzeit
-    o.sort = o.time.startsWith('Ganz') || o.time.startsWith('bis') ? '' : D.hm(ev.start_time);
+    o.sort = o.time === 'Ganztägig' || o.time.startsWith('bis') ? '' : D.hm(ev.start_time) || '';
     out.push(o);
   }
   // Ausgefallene Termine ans Ende
@@ -341,9 +341,10 @@ function timeLabel({ ev, day, multi }) {
   if (multi) {
     if (day === ev.date && start) return `ab ${start}`;
     if (day === ev.end_date && end) return `bis ${end}`;
-    return 'Ganztägig';
+    return ev.all_day ? 'Ganztägig' : '';
   }
-  if (!start) return 'Ganztägig';
+  // Ohne Uhrzeit: nur "Ganztägig", wenn das ausdrücklich so eingetragen ist
+  if (!start) return ev.all_day ? 'Ganztägig' : '';
   return end ? `${start}–${end}` : start;
 }
 
@@ -377,8 +378,10 @@ function eventCard(o) {
         <div class="body">
           ${
             o.cancelled
-              ? `<div class="cancel-label">Fällt aus${allDay ? '' : ` · ${esc(o.time)}`}</div>`
-              : `<div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>`
+              ? `<div class="cancel-label">Fällt aus${allDay || !o.time ? '' : ` · ${esc(o.time)}`}</div>`
+              : o.time
+                ? `<div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>`
+                : ''
           }
           <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}</div>
           <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
@@ -704,7 +707,7 @@ function viewWoche() {
                 ? events
                     .map(
                       (o) => `<div class="wline ${o.cancelled ? 'cancelled' : ''}">
-                        <span class="muted">${o.time === 'Ganztägig' ? (o.multi ? '📆' : 'ganzt.') : esc(o.time)}</span>
+                        ${o.time ? `<span class="muted">${o.time === 'Ganztägig' ? (o.multi ? '📆' : 'ganzt.') : esc(o.time)}</span>` : o.multi ? '<span class="muted">📆</span>' : ''}
                         ${esc(o.ev.title)} ${chips(eventPeople(o.ev))}
                       </div>`
                     )
@@ -1578,7 +1581,7 @@ function eventForm(ev, day) {
   ev ||= { date: day || state.date };
   const weekly = ev.weekdays?.length > 0;
   const multi = !weekly && ev.end_date && ev.end_date > ev.date;
-  const allDay = !isNew && !ev.start_time;
+  const allDay = !!ev.all_day;
   const o = !isNew && day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
 
   const inner = `
@@ -1647,6 +1650,7 @@ function eventForm(ev, day) {
         date,
         weekdays: repeat === 'weekly' ? wds : null,
         end_date: endDate,
+        all_day: allDayChecked,
         start_time: allDayChecked ? null : f.get('start_time') || null,
         end_time: allDayChecked ? null : f.get('end_time') || null,
         location: f.get('location').trim() || null,

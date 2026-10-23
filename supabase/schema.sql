@@ -144,6 +144,9 @@ create table if not exists public.birthdays (
 alter table public.tasks add column if not exists repeat text;
 alter table public.tasks add column if not exists repeat_from date;
 
+-- Ganztägig als eigenes Merkmal (Update 9)
+alter table public.events add column if not exists all_day boolean not null default false;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
