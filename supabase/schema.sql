@@ -129,12 +129,23 @@ alter table public.meals add column if not exists recipe_id uuid references publ
 -- Persönliche Erinnerungen (Update 6)
 alter table public.tasks add column if not exists created_by uuid references public.members (id) on delete set null;
 
+-- Geburtstagskalender (Update 7)
+create table if not exists public.birthdays (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  day int not null check (day between 1 and 31),
+  month int not null check (month between 1 and 12),
+  year int,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
 declare t text;
 begin
-  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes'] loop
+  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "familie" on public.%I', t);
     execute format('create policy "familie" on public.%I for all to authenticated using (true) with check (true)', t);

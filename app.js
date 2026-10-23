@@ -381,6 +381,30 @@ function eventCard(o) {
     </article>`;
 }
 
+/* ================= Geburtstage ================= */
+
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+// Datum des Geburtstags in einem bestimmten Jahr (29.2. → 28.2. in Nicht-Schaltjahren)
+function birthdayIn(b, year) {
+  const d = b.month === 2 && b.day === 29 && !isLeap(year) ? 28 : b.day;
+  return `${year}-${D.pad(b.month)}-${D.pad(d)}`;
+}
+const birthdaysOn = (day) => (state.data.birthdays || []).filter((b) => birthdayIn(b, Number(day.slice(0, 4))) === day);
+
+// Nächster Geburtstag ab einem Tag (heute zählt mit)
+function nextBirthday(b, from = D.todayKey()) {
+  const y = Number(from.slice(0, 4));
+  const thisYear = birthdayIn(b, y);
+  return thisYear >= from ? thisYear : birthdayIn(b, y + 1);
+}
+const ageOn = (b, day) => (b.year ? Number(day.slice(0, 4)) - b.year : null);
+const birthdayText = (b, day) => {
+  const age = ageOn(b, day);
+  return age ? `${b.name} wird ${age}` : `${b.name} hat Geburtstag`;
+};
+
 /* ================= Aufgaben ================= */
 
 const doneKey = (t) => (t.done_at ? D.toKey(new Date(t.done_at)) : null);
@@ -487,7 +511,12 @@ function viewHeute() {
   const openReminders = reminders.filter((x) => !x.done).length;
   const openTasks = allTasks.filter((x) => !x.done).length;
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const bdays = birthdaysOn(day);
+  const upcoming = Array.from({ length: 7 }, (_, i) => D.addDays(day, i + 1)).flatMap((d) =>
+    birthdaysOn(d).map((b) => ({ b, d }))
+  );
   const summary = [
+    bdays.length ? plural(bdays.length, 'Geburtstag', 'Geburtstage') : '',
     activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
     openReminders ? plural(openReminders, 'Erinnerung', 'Erinnerungen') : '',
     openTasks ? plural(openTasks, 'Aufgabe', 'Aufgaben') : '',
@@ -505,6 +534,28 @@ function viewHeute() {
         )
         .join('')}
     </div>
+    ${bdays
+      .map(
+        (b) => `<button class="card birthday-today" data-action="edit-birthday" data-id="${b.id}">
+          <span class="bd-icon">🎂</span>
+          <span><strong>${esc(
+            isToday
+              ? ageOn(b, day)
+                ? `${b.name} wird heute ${ageOn(b, day)}`
+                : `${b.name} hat heute Geburtstag`
+              : birthdayText(b, day)
+          )}</strong>
+          ${b.notes ? `<span class="muted small">${esc(b.notes)}</span>` : ''}</span>
+        </button>`
+      )
+      .join('')}
+    ${
+      upcoming.length
+        ? `<p class="bd-upcoming">Demnächst: ${upcoming
+            .map(({ b, d }) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(b.name)}</button> <span class="muted">${D.formatShort(d)}</span>`)
+            .join(' · ')}</p>`
+        : ''
+    }
     ${
       reminders.length
         ? `<section>
@@ -600,6 +651,7 @@ function viewWoche() {
       const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue);
       const open = tasks.filter((x) => !x.done).length;
       const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue);
+      const bdays = birthdaysOn(day);
       const meal = state.data.meals.find((m) => m.date === day);
       return `
         <div class="card week-day ${day === today ? 'today' : ''}">
@@ -609,6 +661,7 @@ function viewWoche() {
             <span>${D.fromKey(day).getDate()}.</span>
           </div>
           <div class="body">
+            ${bdays.map((b) => `<div class="wline bd">🎂 ${esc(birthdayText(b, day))}</div>`).join('')}
             ${
               events.length
                 ? events
@@ -619,7 +672,9 @@ function viewWoche() {
                       </div>`
                     )
                     .join('')
-                : '<div class="muted small">Keine Termine</div>'
+                : bdays.length
+                  ? ''
+                  : '<div class="muted small">Keine Termine</div>'
             }
             ${reminders
               .map(
@@ -1042,6 +1097,33 @@ function viewMehr() {
     </section>
 
     <section>
+      <div class="section-head"><h2>🎂 Geburtstage</h2><button class="link" data-action="new-birthday">+ Geburtstag</button></div>
+      ${
+        state.data.missing?.includes('birthdays')
+          ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-7.sql in Supabase ausführen.</div>'
+          : `<ul class="card list">
+        ${
+          state.data.birthdays.length
+            ? [...state.data.birthdays]
+                .map((b) => ({ b, next: nextBirthday(b) }))
+                .sort((x, y) => x.next.localeCompare(y.next))
+                .map(({ b, next }) => {
+                  const days = Math.round((D.fromKey(next) - D.fromKey(D.todayKey())) / 86400000);
+                  const age = ageOn(b, next);
+                  return `<li><button data-action="edit-birthday" data-id="${b.id}">
+                    <span class="grow">${esc(b.name)}</span>
+                    <span class="muted small bd-when">${b.day}. ${MONTHS[b.month - 1]}${age ? ` · wird ${age}` : ''}<br />
+                      <b>${days === 0 ? 'heute 🎉' : days === 1 ? 'morgen' : `in ${days} Tagen`}</b></span>
+                  </button></li>`;
+                })
+                .join('')
+            : '<li class="empty">Noch keine Geburtstage eingetragen</li>'
+        }
+      </ul>`
+      }
+    </section>
+
+    <section>
       <h2>Darstellung</h2>
       <div class="card pad">
         <div class="seg wide theme-seg">
@@ -1191,6 +1273,7 @@ function weekStrip() {
   const today = D.todayKey();
   const days = Array.from({ length: 7 }, (_, i) => D.addDays(start, i));
   const busy = (day) =>
+    birthdaysOn(day).length > 0 ||
     eventsOn(day).some((o) => !o.cancelled) ||
     tasksOn(day, { filter: false, kind: 'erinnerung' }).some((x) => !x.done && !x.overdue) ||
     tasksOn(day, { filter: false }).some((x) => !x.done && !x.overdue && !x.undated);
@@ -1553,6 +1636,41 @@ function taskForm(t, day) {
   updateRepeatVisibility($('#sheet-root form'));
 }
 
+function birthdayForm(b) {
+  const isNew = !b;
+  b ||= { day: '', month: new Date().getMonth() + 1 };
+  const inner = `
+    <label>Wer hat Geburtstag?<input name="name" value="${esc(b.name || '')}" required placeholder="z. B. Oma Gisela" /></label>
+    <div class="row">
+      <label>Tag<select name="day" required>
+        <option value="">–</option>
+        ${Array.from({ length: 31 }, (_, i) => i + 1).map((d) => `<option ${d === b.day ? 'selected' : ''}>${d}</option>`).join('')}
+      </select></label>
+      <label class="grow">Monat<select name="month">
+        ${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === b.month ? 'selected' : ''}>${m}</option>`).join('')}
+      </select></label>
+      <label>Jahr<input type="number" name="year" inputmode="numeric" min="1900" max="${new Date().getFullYear()}" placeholder="optional" value="${esc(b.year ?? '')}" /></label>
+    </div>
+    <p class="muted small hint">Mit Geburtsjahr zeigt die App das Alter an („wird 75“).</p>
+    ${moreOptions(`<label>Notiz<textarea name="notes" rows="2" placeholder="z. B. Geschenkideen">${esc(b.notes || '')}</textarea></label>`, b.notes)}`;
+  const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-birthday" data-id="${b.id}">Geburtstag löschen</button>`;
+  openSheet(
+    isNew ? 'Neuer Geburtstag' : 'Geburtstag bearbeiten',
+    inner,
+    (f) => {
+      const day = Number(f.get('day'));
+      const month = Number(f.get('month'));
+      const year = f.get('year') ? Number(f.get('year')) : null;
+      const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+      if (!day || day > maxDay) return toast(`Den ${day || '?'}. ${MONTHS[month - 1]} gibt es nicht.`);
+      if (year && month === 2 && day === 29 && !isLeap(year)) return toast(`${year} war kein Schaltjahr.`);
+      save('birthdays', { id: b.id, name: f.get('name').trim(), day, month, year, notes: f.get('notes').trim() || null });
+      closeSheet();
+    },
+    extra
+  );
+}
+
 function memberForm(m) {
   const isNew = !m;
   m ||= { role: 'kind', drives: false, color: COLORS[members().length % COLORS.length], sort: members().length };
@@ -1674,6 +1792,16 @@ const actions = {
   },
   'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
   'edit-member': (d) => memberForm(member(d.id)),
+  'new-birthday': () => birthdayForm(null),
+  'edit-birthday': (d) => {
+    const b = state.data.birthdays.find((x) => x.id === d.id);
+    if (b) birthdayForm(b);
+  },
+  'delete-birthday': (d) => {
+    const b = state.data.birthdays.find((x) => x.id === d.id);
+    closeSheet();
+    removeWithUndo('birthdays', d.id, `Geburtstag von ${b?.name || '…'} gelöscht`);
+  },
   'set-theme': (d) => {
     lsSet('fo-theme', d.theme === 'auto' ? null : d.theme);
     applyTheme(d.theme);

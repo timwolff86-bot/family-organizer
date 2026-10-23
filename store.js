@@ -14,6 +14,7 @@ export const TABLES = [
   'shopping_items',
   'products',
   'recipes',
+  'birthdays',
 ];
 
 // Tabellen mit vielen Einträgen pro Tag: nur die letzten 60 Tage + Zukunft laden.
