@@ -491,15 +491,19 @@ function viewHeute() {
     activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
     openReminders ? plural(openReminders, 'Erinnerung', 'Erinnerungen') : '',
     openTasks ? plural(openTasks, 'Aufgabe', 'Aufgaben') : '',
-    meal?.text ? `🍽️ ${esc(meal.text)}` : '',
   ].filter(Boolean);
   const nothing = !events.length && !reminders.length && !allTasks.length;
 
   return `
     <p class="day-summary">${summary.length ? summary.join(' · ') : isToday ? 'Ein ruhiger Tag – nichts geplant.' : 'Nichts geplant.'}</p>
     <div class="family-strip">
-      ${members()
-        .map((m) => `<button data-action="open-person" data-id="${m.id}">${avatar(m)}<span>${esc(m.name)}</span></button>`)
+      ${[...members()]
+        .sort((a, b) => (b.id === state.me) - (a.id === state.me)) // ich zuerst
+        .map(
+          (m) => `<button class="${m.id === state.me ? 'me' : ''}" data-action="open-person" data-id="${m.id}">
+            <span class="av-wrap">${avatar(m)}${m.id === state.me ? '<span class="me-badge">Du</span>' : ''}</span>
+            <span class="fs-name">${esc(m.name)}</span></button>`
+        )
         .join('')}
     </div>
     ${

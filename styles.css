@@ -1789,3 +1789,40 @@ body {
 .sheet-body .hint {
   margin: -6px 0 0;
 }
+
+/* Familienleiste: wer bin ich? */
+.family-strip .av-wrap {
+  position: relative;
+  display: block;
+}
+.family-strip button.me .av {
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5.5px var(--accent);
+}
+.me-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+  line-height: 1.3;
+}
+.family-strip button.me .fs-name {
+  color: var(--text);
+  font-weight: 800;
+}
+.family-strip .fs-name {
+  margin-top: 4px;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.family-strip {
+  padding-top: 8px;
+}
