@@ -1930,3 +1930,190 @@ body {
 .rhythm-box {
   gap: 12px;
 }
+
+/* ================= Kalender: Woche | Monat ================= */
+.top.cal-top {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.cal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cal-switch {
+  max-width: 320px;
+  width: 100%;
+  margin: 0 auto;
+}
+.cal-switch button {
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 14px;
+}
+
+/* Monatsraster */
+.month {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 6px 6px;
+  box-shadow: var(--shadow);
+}
+.m-head,
+.m-row {
+  display: grid;
+  grid-template-columns: 28px repeat(7, 1fr);
+  gap: 2px;
+}
+.m-head span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  padding-bottom: 6px;
+}
+.m-kw {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  text-align: center;
+  border-radius: 8px;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+}
+.m-kw:active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.m-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0 5px;
+  min-height: 50px;
+  border-radius: 12px;
+  text-align: center;
+}
+.m-num {
+  font-size: 15px;
+  font-weight: 650;
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  border-radius: 50%;
+}
+.m-day.other {
+  opacity: 0.35;
+}
+.m-day.today .m-num {
+  color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.m-day.sel .m-num {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.m-day.hol .m-num {
+  color: var(--red);
+}
+.m-day.sel.hol .m-num {
+  color: var(--on-accent);
+}
+.m-day.ferien {
+  background: color-mix(in srgb, #f4a261 14%, transparent);
+}
+.m-dots {
+  display: flex;
+  gap: 3px;
+  min-height: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 34px;
+}
+.m-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: block;
+}
+.m-dots i.dot-task {
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+.m-dots i.dot-bd {
+  background: #f4a261;
+}
+
+/* Einträge des gewählten Tags */
+.agenda {
+  margin-top: 16px;
+}
+.agenda .section-head h2 {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 16px;
+  color: var(--text);
+}
+.ag-note {
+  display: block;
+  margin: 0 2px 8px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.ag-event {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.ag-event.cancelled .ag-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.ag-time {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 52px;
+}
+.ag-title {
+  font-weight: 600;
+  flex: 1;
+}
+.ag-event .meta {
+  margin: 0;
+}
+.agenda .tasks {
+  margin-bottom: 8px;
+}
+
+/* Gleit-Effekt beim Wischen */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(28%);
+    opacity: 0;
+  }
+}
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-28%);
+    opacity: 0;
+  }
+}
+main.slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+main.slide-in-left {
+  animation: slide-in-left 0.2s ease-out;
+}
+body {
+  overflow-x: hidden;
+}
