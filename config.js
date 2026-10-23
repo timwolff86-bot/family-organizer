@@ -4,5 +4,5 @@
 // zusammen mit den Regeln aus supabase/schema.sql.
 //
 // Bleiben die Werte leer, läuft die App im lokalen Modus (Daten nur auf diesem Gerät).
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://pdxxnwdmqjyinefummha.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_b_z5nqNX5xXrtK68hivtog_W1H9ZKI0';
