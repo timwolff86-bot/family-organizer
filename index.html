@@ -14,6 +14,13 @@
     <meta name="apple-mobile-web-app-title" content="Familie" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="stylesheet" href="styles.css" />
+    <script>
+      // Gewählte Darstellung sofort setzen, damit nichts aufblitzt
+      try {
+        var t = localStorage.getItem('fo-theme');
+        if (t) document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"><div class="boot">Lädt …</div></div>

@@ -12,26 +12,51 @@
   --red-soft: #fdecec;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04);
   --radius: 14px;
-  --tabbar-h: 62px;
+  --tabbar-h: 64px;
+  --card-2: #faf8f4;
+  --on-accent: #ffffff;
+  --chip-mix: 100%;
   color-scheme: light;
 }
 
+/* Dunkles Design: automatisch (Handy-Einstellung) oder per Schalter in der App */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15181b;
-    --card: #1f2327;
-    --text: #e8e6e1;
-    --muted: #9aa1a9;
-    --line: #2e3338;
+  :root:not([data-theme='light']) {
+    --bg: #16181b;
+    --card: #212428;
+    --card-2: #282c31;
+    --text: #ecebe7;
+    --muted: #9ca3ab;
+    --line: #31363c;
     --accent: #6cc3b9;
-    --accent-soft: #1f3533;
+    --accent-soft: #1f3a37;
+    --on-accent: #10201e;
     --warn: #fb923c;
     --warn-soft: #3a2618;
     --red: #f87171;
     --red-soft: #3a1d1d;
-    --shadow: none;
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+    --chip-mix: 55%;
     color-scheme: dark;
   }
+}
+:root[data-theme='dark'] {
+    --bg: #16181b;
+    --card: #212428;
+    --card-2: #282c31;
+    --text: #ecebe7;
+    --muted: #9ca3ab;
+    --line: #31363c;
+    --accent: #6cc3b9;
+    --accent-soft: #1f3a37;
+    --on-accent: #10201e;
+    --warn: #fb923c;
+    --warn-soft: #3a2618;
+    --red: #f87171;
+    --red-soft: #3a1d1d;
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+    --chip-mix: 55%;
+    color-scheme: dark;
 }
 
 * {
@@ -1446,4 +1471,212 @@ section {
 }
 .tabbar button {
   font-size: 10.5px;
+}
+
+/* ================= Paket A: moderneres Layout ================= */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+.chip {
+  color: color-mix(in srgb, var(--c) var(--chip-mix), var(--text));
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+}
+
+/* Kopf "Heute" */
+.top.home {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: calc(env(safe-area-inset-top) + 14px) 16px 10px;
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.home-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+.greet {
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.pill {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.date-big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--text);
+}
+.date-big .rel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  width: 100%;
+}
+.date-big svg {
+  color: var(--muted);
+  align-self: center;
+}
+.week-strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 12px;
+}
+.ws-nav {
+  width: 22px;
+  flex: none;
+  font-size: 22px;
+  color: var(--muted);
+  text-align: center;
+}
+.ws-day {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0 5px;
+  border-radius: 14px;
+  text-align: center;
+}
+.ws-wd {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.ws-num {
+  font-size: 17px;
+  font-weight: 700;
+}
+.ws-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: transparent;
+}
+.ws-dot.on {
+  background: var(--accent);
+}
+.ws-day.today .ws-num {
+  color: var(--accent);
+}
+.ws-day.sel {
+  background: var(--accent);
+}
+.ws-day.sel .ws-wd,
+.ws-day.sel .ws-num {
+  color: var(--on-accent);
+}
+.ws-day.sel .ws-dot.on {
+  background: var(--on-accent);
+}
+
+.day-summary {
+  margin: 2px 2px 14px;
+  font-size: 15px;
+  color: var(--muted);
+}
+.calm {
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  margin: 4px 0 18px;
+}
+.view-heute section:first-of-type {
+  margin-top: 8px;
+}
+
+/* Terminkarten mit Farbstreifen */
+.event-main {
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  align-items: stretch;
+}
+.stripe {
+  width: 5px;
+  flex: none;
+  border-radius: 4px;
+}
+.time-line {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 1px;
+}
+.time-line.all-day {
+  display: inline-block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--accent-soft);
+  padding: 2px 7px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+.event .title {
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+/* Tab-Leiste mit Symbolen */
+.tabbar {
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+}
+.tabbar button {
+  gap: 3px;
+  font-size: 11px;
+}
+.tabbar .ti {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 30px;
+  border-radius: 999px;
+  filter: none;
+  opacity: 1;
+  transition: background 0.15s;
+}
+.tabbar button.on .ti {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tabbar button.on {
+  color: var(--text);
+}
+
+/* Dunkles Design: Feinschliff */
+.btn.primary,
+.fab,
+.filter-chip.on,
+.weekdays input:checked + span {
+  color: var(--on-accent);
+}
+.sheet,
+.sheet-head {
+  background: var(--bg);
+}
+.theme-seg button {
+  flex: 1;
 }

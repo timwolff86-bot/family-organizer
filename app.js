@@ -30,6 +30,17 @@ const state = {
   pendingRender: false,
 };
 
+// Darstellung: 'auto' (wie das Handy), 'light' oder 'dark'
+function applyTheme(theme = lsGet('fo-theme') || 'auto') {
+  const root = document.documentElement;
+  if (theme === 'auto') delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#16181b' : '#f6f4ef');
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme());
+
 const COLORS = ['#2f6f6a', '#d9822b', '#7c5cbf', '#2b7bd9', '#d94c6a', '#3f9d4a', '#8a6d3b', '#5c6b7a'];
 const ROLES = { erwachsen: 'Erwachsen', kind: 'Kind', helfer: 'Helfer/in' };
 
@@ -304,11 +315,19 @@ function setOccurrence(o, patch) {
 function eventCard(o) {
   const { ev } = o;
   const allDay = o.time === 'Ganztägig';
+  // Farbstreifen in den Farben der beteiligten Personen
+  const colors = eventPeople(ev).map((id) => member(id)?.color).filter(Boolean);
+  const stripe = !colors.length
+    ? 'var(--line)'
+    : colors.length === 1
+      ? colors[0]
+      : `linear-gradient(${colors.map((c, i) => `${c} ${(i / colors.length) * 100}% ${((i + 1) / colors.length) * 100}%`).join(', ')})`;
   return `
-    <article class="card event ${o.cancelled ? 'cancelled' : ''} ${o.multi ? 'multi' : ''}">
+    <article class="card event ${o.cancelled ? 'cancelled' : ''}">
       <button class="event-main" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
-        <div class="time ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>
+        <span class="stripe" style="background:${stripe}"></span>
         <div class="body">
+          <div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>
           <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}</div>
           <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
           ${o.multi ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
@@ -412,10 +431,23 @@ function viewHeute() {
 
   const filters = [
     ['alle', 'Alle'],
-    ['meine', meMember() ? `Meine` : 'Meine'],
+    ['meine', 'Meine'],
   ];
+  const allTasks = tasksOn(day, { filter: false });
+  const activeEvents = events.filter((o) => !o.cancelled);
+  const openReminders = reminders.filter((x) => !x.done).length;
+  const openTasks = allTasks.filter((x) => !x.done).length;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const summary = [
+    activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
+    openReminders ? plural(openReminders, 'Erinnerung', 'Erinnerungen') : '',
+    openTasks ? plural(openTasks, 'Aufgabe', 'Aufgaben') : '',
+    meal?.text ? `🍽️ ${esc(meal.text)}` : '',
+  ].filter(Boolean);
+  const nothing = !events.length && !reminders.length && !allTasks.length;
 
   return `
+    <p class="day-summary">${summary.length ? summary.join(' · ') : isToday ? 'Ein ruhiger Tag – nichts geplant.' : 'Nichts geplant.'}</p>
     <div class="family-strip">
       ${members()
         .map((m) => `<button data-action="open-person" data-id="${m.id}">${avatar(m)}<span>${esc(m.name)}</span></button>`)
@@ -429,10 +461,8 @@ function viewHeute() {
           </section>`
         : ''
     }
-    <section>
-      <h2>Termine</h2>
-      ${events.length ? events.map(eventCard).join('') : '<p class="empty">Keine Termine.</p>'}
-    </section>
+    ${events.length ? `<section><h2>Termine</h2>${events.map(eventCard).join('')}</section>` : ''}
+    ${nothing ? '<div class="calm card">☀️ Keine Termine und nichts zu erledigen.</div>' : ''}
 
     <section>
       <h2>Essen</h2>
@@ -447,7 +477,7 @@ function viewHeute() {
       }
     </section>
 
-    <section>
+    ${allTasks.length ? `<section>
       <div class="section-head">
         <h2>Aufgaben</h2>
         <div class="seg">
@@ -461,9 +491,9 @@ function viewHeute() {
           ? '<p class="empty">Unter „Mehr“ auswählen, wer du bist.</p>'
           : tasks.length
             ? `<ul class="tasks card">${tasks.map(taskRow).join('')}</ul>`
-            : '<p class="empty">Nichts zu tun. 🎉</p>'
+            : '<p class="empty">Für dich ist heute nichts offen. 🎉</p>'
       }
-    </section>`;
+    </section>` : ''}`;
 }
 
 // Übersicht einer Person: alles der nächsten 14 Tage
@@ -1014,6 +1044,22 @@ function viewMehr() {
     </section>
 
     <section>
+      <h2>Darstellung</h2>
+      <div class="card pad">
+        <div class="seg wide theme-seg">
+          ${[
+            ['auto', 'Automatisch'],
+            ['light', '☀️ Hell'],
+            ['dark', '🌙 Dunkel'],
+          ]
+            .map(([k, l]) => `<button class="${(lsGet('fo-theme') || 'auto') === k ? 'on' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`)
+            .join('')}
+        </div>
+        <p class="muted small">„Automatisch“ folgt der Einstellung des Handys.</p>
+      </div>
+    </section>
+
+    <section>
       <h2>App</h2>
       <div class="card pad">
         <p>${store.isCloud ? '☁️ Gemeinsamer Speicher (Supabase) aktiv.' : '📱 Lokaler Modus: Daten liegen nur auf diesem Gerät.'}</p>
@@ -1028,17 +1074,23 @@ function viewMehr() {
 function header() {
   if (state.view === 'heute') {
     const isToday = state.date === D.todayKey();
+    const h = new Date().getHours();
+    const hello = h < 11 ? 'Guten Morgen' : h < 17 ? 'Hallo' : h < 22 ? 'Guten Abend' : 'Gute Nacht';
+    const me = meMember();
     return `
-      <header class="top">
-        <button class="nav" data-action="prev-day" aria-label="Vorheriger Tag">‹</button>
-        <button class="title-btn" data-action="pick-date">
-          <span class="rel">${D.relativeLabel(state.date)}</span>
-          <span class="date">${esc(D.formatLong(state.date))}</span>
+      <header class="top home">
+        <div class="home-row">
+          <span class="greet">${hello}${me ? `, ${esc(me.name)}` : ''}</span>
+          ${isToday ? '' : '<button class="pill" data-action="goto-today">Heute</button>'}
+        </div>
+        <button class="date-big" data-action="pick-date" aria-label="Datum wählen">
+          ${isToday ? '' : `<span class="rel">${D.relativeLabel(state.date)}</span>`}
+          <span>${esc(D.formatLong(state.date))}</span>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
-        <button class="nav" data-action="next-day" aria-label="Nächster Tag">›</button>
         <input type="date" id="date-picker" value="${state.date}" tabindex="-1" aria-hidden="true" />
-      </header>
-      ${isToday ? '' : '<button class="today-pill" data-action="goto-today">Zu heute</button>'}`;
+        ${weekStrip()}
+      </header>`;
   }
   if (state.view === 'woche') {
     const end = D.addDays(state.weekStart, 6);
@@ -1065,18 +1117,55 @@ function header() {
   return `<header class="top"><h1>${titles[state.view]}</h1></header>`;
 }
 
+// Schlichte Linien-Symbole (sehen auf allen Handys gleich aus)
+const ICONS = {
+  heute:
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  woche: '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2M11 17.5h2"/>',
+  kochbuch: '<path d="M2.5 5h6a3.5 3.5 0 0 1 3.5 3.5V20a2.5 2.5 0 0 0-2.5-2.5h-7z"/><path d="M21.5 5h-6A3.5 3.5 0 0 0 12 8.5V20a2.5 2.5 0 0 1 2.5-2.5h7z"/>',
+  einkauf: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h2.8l2.4 11.5h11l2-8.5H6.2"/>',
+  mehr: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+};
+const icon = (name) =>
+  `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+// Wochenleiste Mo–So: Tippen wechselt den Tag, Punkt = da steht etwas an
+function weekStrip() {
+  const start = D.startOfWeek(state.date);
+  const today = D.todayKey();
+  const days = Array.from({ length: 7 }, (_, i) => D.addDays(start, i));
+  const busy = (day) =>
+    eventsOn(day).some((o) => !o.cancelled) ||
+    tasksOn(day, { filter: false, kind: 'erinnerung' }).some((x) => !x.done && !x.overdue) ||
+    tasksOn(day, { filter: false }).some((x) => !x.done && !x.overdue && !x.undated);
+  return `
+    <div class="week-strip">
+      <button class="ws-nav" data-action="prev-week-day" aria-label="Vorherige Woche">‹</button>
+      ${days
+        .map(
+          (day) => `<button class="ws-day ${day === state.date ? 'sel' : ''} ${day === today ? 'today' : ''}" data-action="select-day" data-day="${day}">
+            <span class="ws-wd">${D.WD_SHORT[D.isoWeekday(day) - 1]}</span>
+            <span class="ws-num">${D.fromKey(day).getDate()}</span>
+            <span class="ws-dot ${busy(day) ? 'on' : ''}"></span>
+          </button>`
+        )
+        .join('')}
+      <button class="ws-nav" data-action="next-week-day" aria-label="Nächste Woche">›</button>
+    </div>`;
+}
+
 function tabbar() {
   const tabs = [
-    ['heute', '📅', 'Heute'],
-    ['woche', '🗓️', 'Woche'],
-    ['kochbuch', '📖', 'Kochbuch'],
-    ['einkauf', '🛒', 'Einkauf'],
-    ['mehr', '☰', 'Mehr'],
+    ['heute', 'heute', 'Heute'],
+    ['woche', 'woche', 'Woche'],
+    ['kochbuch', 'kochbuch', 'Kochbuch'],
+    ['einkauf', 'einkauf', 'Einkauf'],
+    ['mehr', 'mehr', 'Mehr'],
   ];
   return `<nav class="tabbar">${tabs
     .map(
       ([k, i, l]) => `<button class="${state.view === k ? 'on' : ''}" data-action="tab" data-tab="${k}">
-        <span class="ti">${i}</span><span>${l}</span></button>`
+        <span class="ti">${icon(i)}</span><span>${l}</span></button>`
     )
     .join('')}</nav>`;
 }
@@ -1110,7 +1199,6 @@ function render() {
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
-    ${store.isCloud ? '' : '<div class="local-note">Lokaler Modus – Daten nur auf diesem Gerät</div>'}
     <main id="main" class="view-${state.view}">${views[state.view]()}</main>
     ${recipeList()}
     ${state.view === 'heute' || state.view === 'woche' ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
@@ -1521,6 +1609,17 @@ const actions = {
   },
   'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
   'edit-member': (d) => memberForm(member(d.id)),
+  'set-theme': (d) => {
+    lsSet('fo-theme', d.theme === 'auto' ? null : d.theme);
+    applyTheme(d.theme);
+    render();
+  },
+  'select-day': (d) => {
+    state.date = d.day;
+    render();
+  },
+  'prev-week-day': () => changeDay(-7),
+  'next-week-day': () => changeDay(7),
   'recipe-filter': (d) => {
     state.recipeFilter = d.filter;
     render();
