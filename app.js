@@ -402,7 +402,7 @@ function nextBirthday(b, from = D.todayKey()) {
 const ageOn = (b, day) => (b.year ? Number(day.slice(0, 4)) - b.year : null);
 const birthdayText = (b, day) => {
   const age = ageOn(b, day);
-  return age ? `${b.name} wird ${age}` : `${b.name} hat Geburtstag`;
+  return `${b.name} hat Geburtstag${age ? ` (${age})` : ''}`;
 };
 
 /* ================= Aufgaben ================= */
@@ -512,9 +512,6 @@ function viewHeute() {
   const openTasks = allTasks.filter((x) => !x.done).length;
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const bdays = birthdaysOn(day);
-  // Hinweis nur am Tag vorher
-  const tomorrow = D.addDays(day, 1);
-  const upcoming = birthdaysOn(tomorrow);
   const summary = [
     bdays.length ? plural(bdays.length, 'Geburtstag', 'Geburtstage') : '',
     activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
@@ -534,26 +531,11 @@ function viewHeute() {
         )
         .join('')}
     </div>
-    ${bdays
-      .map(
-        (b) => `<button class="card birthday-today" data-action="edit-birthday" data-id="${b.id}">
-          <span class="bd-icon">🎂</span>
-          <span><strong>${esc(
-            isToday
-              ? ageOn(b, day)
-                ? `${b.name} wird heute ${ageOn(b, day)}`
-                : `${b.name} hat heute Geburtstag`
-              : birthdayText(b, day)
-          )}</strong>
-          ${b.notes ? `<span class="muted small">${esc(b.notes)}</span>` : ''}</span>
-        </button>`
-      )
-      .join('')}
     ${
-      upcoming.length
-        ? `<p class="bd-upcoming">${isToday ? 'Morgen' : `Am ${D.formatShort(tomorrow)}`}: ${upcoming
-            .map((b) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, tomorrow))}</button>`)
-            .join(' · ')}</p>`
+      bdays.length
+        ? `<p class="bd-line">${bdays
+            .map((b) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, day))}</button>`)
+            .join('<br />')}</p>`
         : ''
     }
     ${

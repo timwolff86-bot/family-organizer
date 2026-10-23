@@ -1896,3 +1896,12 @@ body {
   border-radius: 22px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
+
+.bd-line {
+  margin: 2px 2px 16px;
+  font-size: 15px;
+  line-height: 1.8;
+}
+.bd-line .link {
+  font-size: 15px;
+}
