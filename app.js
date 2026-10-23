@@ -271,6 +271,9 @@ function eventsOn(day) {
   return out.sort((a, b) => a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
 }
 
+// Personen eines Termins (ältere Einträge haben nur member_id)
+const eventPeople = (ev) => (ev.member_ids?.length ? ev.member_ids : ev.member_id ? [ev.member_id] : []);
+
 // Uhrzeit-Text für einen Termin an einem bestimmten Tag
 function timeLabel({ ev, day, multi }) {
   const start = D.hm(ev.start_time);
@@ -306,7 +309,7 @@ function eventCard(o) {
         <div class="time ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>
         <div class="body">
           <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}</div>
-          <div class="meta">${chip(ev.member_id)}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
+          <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
           ${o.multi ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
           ${o.cancelled ? '<div class="tag">Fällt aus</div>' : ''}
           ${ev.notes ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
@@ -379,6 +382,7 @@ function taskRow(x) {
   const { t } = x;
   const by = x.done && t.done_by && member(t.done_by);
   const badges = [
+    isReminder(t) && state.view === 'person' ? '<span class="tag time">🔔</span>' : '',
     t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">🕑 ${D.hm(t.due_time)}</span>` : '',
     x.overdue ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
     x.recurring ? '<span class="muted small">↻</span>' : '',
@@ -411,6 +415,11 @@ function viewHeute() {
   ];
 
   return `
+    <div class="family-strip">
+      ${members()
+        .map((m) => `<button data-action="open-person" data-id="${m.id}">${avatar(m)}<span>${esc(m.name)}</span></button>`)
+        .join('')}
+    </div>
     ${
       reminders.length
         ? `<section>
@@ -451,6 +460,50 @@ function viewHeute() {
     </section>`;
 }
 
+// Übersicht einer Person: alles der nächsten 14 Tage
+function viewPerson() {
+  const id = state.personId;
+  const today = D.todayKey();
+  const mine = (ids) => ids.includes(id);
+  let counts = { events: 0, reminders: 0, tasks: 0 };
+  const days = [];
+  for (let i = 0; i < 14; i++) {
+    const day = D.addDays(today, i);
+    const events = eventsOn(day).filter((o) => mine(eventPeople(o.ev)));
+    const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => mine(peopleOf(x.t)));
+    const tasks = tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)));
+    if (!events.length && !reminders.length && !tasks.length) continue;
+    counts.events += events.length;
+    counts.reminders += reminders.filter((x) => !x.done).length;
+    counts.tasks += tasks.filter((x) => !x.done).length;
+    days.push({ day, events, items: [...reminders, ...tasks] });
+  }
+  const label = (day) => {
+    const rel = D.relativeLabel(day);
+    return ['Heute', 'Morgen', 'Übermorgen'].includes(rel) ? `${rel} · ${D.formatShort(day)}` : D.formatLong(day);
+  };
+  return `
+    <div class="person-stats">
+      <div><b>${counts.events}</b><span>Termine</span></div>
+      <div><b>${counts.reminders}</b><span>Erinnerungen</span></div>
+      <div><b>${counts.tasks}</b><span>Aufgaben</span></div>
+    </div>
+    <p class="muted small center">Die nächsten 14 Tage</p>
+    ${
+      days.length
+        ? days
+            .map(
+              (d) => `<section>
+                <h2>${esc(label(d.day))}</h2>
+                ${d.events.map(eventCard).join('')}
+                ${d.items.length ? `<ul class="tasks card">${d.items.map(taskRow).join('')}</ul>` : ''}
+              </section>`
+            )
+            .join('')
+        : '<p class="empty center">In den nächsten 14 Tagen steht nichts an. 🎉</p>'
+    }`;
+}
+
 function viewWoche() {
   const days = Array.from({ length: 7 }, (_, i) => D.addDays(state.weekStart, i));
   const today = D.todayKey();
@@ -475,7 +528,7 @@ function viewWoche() {
                     .map(
                       (o) => `<div class="wline ${o.cancelled ? 'cancelled' : ''}">
                         <span class="muted">${o.time === 'Ganztägig' ? (o.multi ? '📆' : 'ganzt.') : esc(o.time)}</span>
-                        ${esc(o.ev.title)} ${chip(o.ev.member_id)}
+                        ${esc(o.ev.title)} ${chips(eventPeople(o.ev))}
                       </div>`
                     )
                     .join('')
@@ -667,7 +720,7 @@ function viewMehr() {
       <ul class="card list">
         ${ms
           .map(
-            (m) => `<li><button data-action="edit-member" data-id="${m.id}">
+            (m) => `<li><button data-action="open-person" data-id="${m.id}">
               ${avatar(m)}
               <span class="grow">${esc(m.name)} <span class="muted small">${ROLES[m.role] || ''}</span></span>
             </button></li>`
@@ -684,7 +737,7 @@ function viewMehr() {
             ? events
                 .map(
                   (e) => `<li><button data-action="edit-event" data-id="${e.id}">
-                    <span class="grow">${esc(e.title)} ${chip(e.member_id)}</span>
+                    <span class="grow">${esc(e.title)} ${chips(eventPeople(e))}</span>
                     <span class="muted small">${esc(when(e))}${e.start_time ? ` · ${D.hm(e.start_time)}` : ''}</span>
                   </button></li>`
                 )
@@ -769,6 +822,15 @@ function header() {
         <button class="nav" data-action="next-week" aria-label="Nächste Woche">›</button>
       </header>`;
   }
+  if (state.view === 'person') {
+    const m = member(state.personId);
+    return `
+      <header class="top">
+        <button class="nav" data-action="back" aria-label="Zurück">‹</button>
+        <div class="person-title">${avatar(m)}<strong>${esc(m?.name || '')}</strong></div>
+        <button class="link" data-action="edit-member" data-id="${state.personId}">Bearbeiten</button>
+      </header>`;
+  }
   const titles = { einkauf: 'Einkauf', mehr: 'Mehr' };
   return `<header class="top"><h1>${titles[state.view]}</h1></header>`;
 }
@@ -812,7 +874,8 @@ function render() {
     return;
   }
 
-  const views = { heute: viewHeute, woche: viewWoche, einkauf: viewEinkauf, mehr: viewMehr };
+  if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
+  const views = { heute: viewHeute, woche: viewWoche, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
@@ -927,7 +990,8 @@ function eventForm(ev, day) {
 
   const inner = `
     <label>Was?<input name="title" value="${esc(ev.title || '')}" placeholder="z. B. Pickleball" required /></label>
-    <label>Für wen?<select name="member_id">${memberOptions(ev.member_id, { empty: '– alle / niemand –' })}</select></label>
+    <div class="field-label">Für wen? <span class="muted small">(mehrere möglich)</span></div>
+    ${peoplePicker(eventPeople(ev))}
     ${repeatSwitch('repeat', weekly ? 'weekly' : multi ? 'multi' : 'once', [
       ['once', 'Ein Tag'],
       ['multi', 'Mehrere Tage'],
@@ -982,7 +1046,8 @@ function eventForm(ev, day) {
       save('events', {
         id: ev.id,
         title: f.get('title').trim(),
-        member_id: f.get('member_id') || null,
+        member_ids: readPeople(),
+        member_id: readPeople()[0] || null,
         date,
         weekdays: repeat === 'weekly' ? wds : null,
         end_date: endDate,
@@ -1224,6 +1289,18 @@ const actions = {
   },
   'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
   'edit-member': (d) => memberForm(member(d.id)),
+  'open-person': (d) => {
+    if (state.view !== 'person') state.prevView = state.view;
+    state.personId = d.id;
+    state.view = 'person';
+    window.scrollTo(0, 0);
+    render();
+  },
+  back: () => {
+    state.view = state.prevView || 'heute';
+    window.scrollTo(0, 0);
+    render();
+  },
   'new-event': () => eventForm(null, state.date),
   'new-task': () => taskForm(null, state.date),
   'new-member': () => memberForm(null),

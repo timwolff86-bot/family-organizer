@@ -107,6 +107,9 @@ alter table public.tasks add column if not exists done_by uuid references public
 -- Profilbilder (Update 3)
 alter table public.members add column if not exists avatar text;
 
+-- Mehrere Personen pro Termin (Update 4)
+alter table public.events add column if not exists member_ids uuid[];
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
