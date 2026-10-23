@@ -1888,3 +1888,11 @@ body {
 .top h1 + .nav {
   margin-left: 0;
 }
+
+.logo-img {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto;
+  border-radius: 22px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}

@@ -1,7 +1,7 @@
 // Service Worker: macht die App installierbar und startet sie auch bei schlechtem Netz.
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
 // Supabase-Bibliothek vom CDN: aus dem Cache, weil sich die Version nie ändert.
-const CACHE = 'familienplaner-v20';
+const CACHE = 'familienplaner-v21';
 const SHELL = [
   './',
   'index.html',
@@ -15,6 +15,7 @@ const SHELL = [
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/apple-touch-icon.png',
+  'icons/icon-512.png',
 ];
 
 self.addEventListener('install', (e) => {

@@ -1333,7 +1333,7 @@ function render() {
 function loginScreen() {
   return `
     <div class="center-screen">
-      <div class="logo">🏡</div>
+      <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
       <h1>Familienplaner</h1>
       <form class="card pad login" data-form="login">
         <label>E-Mail<input name="email" type="email" autocomplete="username" required /></label>
