@@ -89,12 +89,27 @@ alter table public.events add column if not exists skip_back boolean not null de
 alter table public.event_occurrences add column if not exists skip_to boolean not null default false;
 alter table public.event_occurrences add column if not exists skip_back boolean not null default false;
 
+-- Produktkatalog + Erinnerungen (Update 2)
+create table if not exists public.products (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  name text not null,
+  category text not null default 'sonstiges',
+  uses int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table public.shopping_items add column if not exists category text;
+alter table public.tasks add column if not exists kind text not null default 'aufgabe';
+alter table public.tasks add column if not exists due_time time;
+alter table public.tasks add column if not exists assignees uuid[];
+alter table public.tasks add column if not exists done_by uuid references public.members (id) on delete set null;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
 declare t text;
 begin
-  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items'] loop
+  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "familie" on public.%I', t);
     execute format('create policy "familie" on public.%I for all to authenticated using (true) with check (true)', t);

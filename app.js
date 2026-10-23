@@ -1,5 +1,6 @@
 import * as store from './store.js';
 import * as D from './dates.js';
+import { CATEGORIES, QUICK_DEFAULTS, categoryOf, classify, normalize, seedProducts } from './products.js';
 
 /* ================= Zustand ================= */
 
@@ -24,12 +25,10 @@ const state = {
   session: null,
   me: lsGet('fo-me'),
   taskFilter: lsGet('fo-filter') || 'alle', // alle | meine | sofa
-  shop: lsGet('fo-shop') || 'Rewe',
   hiddenAt: null,
   pendingRender: false,
 };
 
-const SHOPS = ['Rewe', 'Getränke', 'Sonstiges'];
 const COLORS = ['#2f6f6a', '#d9822b', '#7c5cbf', '#2b7bd9', '#d94c6a', '#3f9d4a', '#8a6d3b', '#5c6b7a'];
 const ROLES = { erwachsen: 'Erwachsen', kind: 'Kind', helfer: 'Helfer/in' };
 
@@ -212,11 +211,17 @@ function eventCard(o) {
 /* ================= Aufgaben ================= */
 
 const doneKey = (t) => (t.done_at ? D.toKey(new Date(t.done_at)) : null);
+const isReminder = (t) => t.kind === 'erinnerung';
+// Eine oder mehrere Personen (ältere Einträge haben nur "assignee")
+const peopleOf = (t) => (t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []);
+const chips = (ids) => ids.map((id) => chip(id)).join('');
 
-function tasksOn(day, { filter = true } = {}) {
+// kind: 'aufgabe' oder 'erinnerung'
+function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
   const today = D.todayKey();
   const out = [];
   for (const t of state.data.tasks) {
+    if ((t.kind || 'aufgabe') !== kind) continue;
     if (t.weekdays?.length) {
       if (t.weekdays.includes(D.isoWeekday(day))) {
         const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
@@ -233,9 +238,15 @@ function tasksOn(day, { filter = true } = {}) {
     }
   }
   let list = out;
-  if (filter && state.taskFilter === 'meine') list = list.filter((x) => x.t.assignee === state.me);
+  if (filter && state.taskFilter === 'meine') list = list.filter((x) => peopleOf(x.t).includes(state.me));
   if (filter && state.taskFilter === 'sofa') list = list.filter((x) => x.t.sofa);
-  return list.sort((a, b) => a.done - b.done || !!b.overdue - !!a.overdue || a.t.title.localeCompare(b.t.title));
+  return list.sort(
+    (a, b) =>
+      a.done - b.done ||
+      !!b.overdue - !!a.overdue ||
+      (a.t.due_time || '99').localeCompare(b.t.due_time || '99') ||
+      a.t.title.localeCompare(b.t.title)
+  );
 }
 
 function toggleTask(taskId, day) {
@@ -246,13 +257,23 @@ function toggleTask(taskId, day) {
     if (c) del('task_completions', c.id);
     else save('task_completions', { task_id: t.id, date: day }, 'task_id,date');
   } else {
-    save('tasks', { id: t.id, done_at: t.done_at ? null : new Date().toISOString() });
+    const done = !t.done_at;
+    save('tasks', { id: t.id, done_at: done ? new Date().toISOString() : null, done_by: done ? state.me || null : null });
   }
+}
+
+// Erinnerung, deren Uhrzeit heute schon vorbei ist
+function isLate(x) {
+  if (x.done || !x.t.due_time || x.t.due_date !== D.todayKey()) return false;
+  const now = new Date();
+  return D.hm(x.t.due_time) <= `${D.pad(now.getHours())}:${D.pad(now.getMinutes())}`;
 }
 
 function taskRow(x) {
   const { t } = x;
+  const by = x.done && t.done_by && member(t.done_by);
   const badges = [
+    t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">🕑 ${D.hm(t.due_time)}</span>` : '',
     x.overdue ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
     x.recurring ? '<span class="muted small">↻</span>' : '',
     t.sofa ? '<span class="tag sofa" title="Im Sitzen machbar">🛋️</span>' : '',
@@ -264,7 +285,7 @@ function taskRow(x) {
       </button>
       <button class="task-main" data-action="edit-task" data-id="${t.id}">
         <span class="title">${esc(t.title)}</span>
-        <span class="meta">${chip(t.assignee)}${badges}</span>
+        <span class="meta">${badges}${chips(peopleOf(t))}${by ? `<span class="muted small">✓ ${esc(by.name)}</span>` : ''}</span>
       </button>
     </li>`;
 }
@@ -276,6 +297,7 @@ function viewHeute() {
   const isToday = day === D.todayKey();
   const events = eventsOn(day);
   const tasks = tasksOn(day);
+  const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' });
   const meal = state.data.meals.find((m) => m.date === day);
 
   // Offene Fahrten in den nächsten 7 Tagen
@@ -294,6 +316,14 @@ function viewHeute() {
     ${
       openRides
         ? `<button class="banner" data-action="goto-week">⚠️ ${openRides} ${openRides === 1 ? 'Fahrt' : 'Fahrten'} in den nächsten 7 Tagen noch ohne Fahrer</button>`
+        : ''
+    }
+    ${
+      reminders.length
+        ? `<section>
+            <div class="section-head"><h2>🔔 Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
+            <ul class="tasks card reminders">${reminders.map(taskRow).join('')}</ul>
+          </section>`
         : ''
     }
     <section>
@@ -336,6 +366,7 @@ function viewWoche() {
       const events = eventsOn(day);
       const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue);
       const open = tasks.filter((x) => !x.done).length;
+      const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue);
       const meal = state.data.meals.find((m) => m.date === day);
       return `
         <div class="card week-day ${day === today ? 'today' : ''}">
@@ -358,6 +389,11 @@ function viewWoche() {
                     .join('')
                 : '<div class="muted small">Keine Termine</div>'
             }
+            ${reminders
+              .map(
+                (x) => `<div class="wline small ${x.done ? 'cancelled' : ''}">🔔 ${x.t.due_time ? `${D.hm(x.t.due_time)} ` : ''}${esc(x.t.title)} ${chips(peopleOf(x.t))}</div>`
+              )
+              .join('')}
             ${open ? `<div class="wline small muted">☐ ${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
           </div>
           </button>
@@ -370,80 +406,74 @@ function viewWoche() {
     .join('');
 }
 
-/* Schnelltasten: was oft gekauft wird (pro Gerät gemerkt) + ein paar Klassiker */
-const QUICK_DEFAULTS = [
-  ['Milch', 'Rewe'],
-  ['Brot', 'Rewe'],
-  ['Butter', 'Rewe'],
-  ['Eier', 'Rewe'],
-  ['Käse', 'Rewe'],
-  ['Joghurt', 'Rewe'],
-  ['Bananen', 'Rewe'],
-  ['Äpfel', 'Rewe'],
-  ['Toilettenpapier', 'Rewe'],
-  ['Wasser', 'Getränke'],
-  ['Apfelschorle', 'Getränke'],
-];
+/* ================= Einkauf ================= */
 
-function readHistory() {
-  try {
-    return JSON.parse(lsGet('fo-shop-history') || '{}');
-  } catch {
-    return {};
-  }
-}
+const productKey = (name) => normalize(name);
+const findProduct = (name) => state.data.products.find((p) => p.key === productKey(name));
+const itemCategory = (i) => i.category || classify(i.name, state.data.products);
 
-function rememberItem(name, shop) {
-  const h = readHistory();
-  const key = name.toLowerCase();
-  h[key] = { name, shop, n: (h[key]?.n || 0) + 1 };
-  lsSet('fo-shop-history', JSON.stringify(h));
-}
-
+// Häufig gekaufte Artikel (gemeinsam über die Datenbank) + Klassiker
 function quickItems() {
-  const open = new Set(state.data.shopping_items.filter((i) => !i.done).map((i) => i.name.toLowerCase()));
-  const h = readHistory();
-  const fromHistory = Object.values(h).sort((a, b) => b.n - a.n);
-  const all = [...fromHistory, ...QUICK_DEFAULTS.map(([name, shop]) => ({ name, shop }))];
+  const open = new Set(state.data.shopping_items.filter((i) => !i.done).map((i) => productKey(i.name)));
+  const used = [...state.data.products].filter((p) => p.uses > 0).sort((a, b) => b.uses - a.uses);
+  const all = [...used.map((p) => p.name), ...QUICK_DEFAULTS];
   const seen = new Set();
   const out = [];
-  for (const it of all) {
-    const key = it.name.toLowerCase();
-    if (seen.has(key) || open.has(key)) continue;
+  for (const name of all) {
+    const key = productKey(name);
+    if (!key || seen.has(key) || open.has(key)) continue;
     seen.add(key);
-    out.push(it);
+    out.push({ name, category: classify(name, state.data.products) });
     if (out.length >= 10) break;
   }
   return out;
 }
 
-function addItem(name, shop) {
-  rememberItem(name, shop);
-  save('shopping_items', { name, shop, done: false });
+// Produkt im Katalog merken bzw. Zähler erhöhen (für Schnelltasten und Lernen)
+function rememberProduct(name, category, { countUse = true } = {}) {
+  if (state.data.missing?.includes('products')) return;
+  const key = productKey(name);
+  if (!key) return;
+  const p = findProduct(name);
+  save(
+    'products',
+    { key, name: p?.name || name, category: category || p?.category || 'sonstiges', uses: (p?.uses || 0) + (countUse ? 1 : 0) },
+    'key',
+    { quiet: true }
+  );
+}
+
+function addItem(name) {
+  const category = classify(name, state.data.products);
+  save('shopping_items', { name, category, done: false });
+  rememberProduct(name, category);
+}
+
+function categoryHint(name) {
+  if (!normalize(name)) return '';
+  const c = categoryOf(classify(name, state.data.products));
+  return `${c.icon} ${c.label}`;
 }
 
 function viewEinkauf() {
   const items = state.data.shopping_items;
   const quick = quickItems();
-  const groups = SHOPS.map((shop) => {
+  const groups = CATEGORIES.map((cat) => {
     const list = items
-      .filter((i) => (SHOPS.includes(i.shop) ? i.shop : 'Sonstiges') === shop)
-      .sort((a, b) => a.done - b.done || (a.created_at || '').localeCompare(b.created_at || ''));
+      .filter((i) => itemCategory(i) === cat.id)
+      .sort((a, b) => a.done - b.done || a.name.localeCompare(b.name));
     if (!list.length) return '';
     const open = list.filter((i) => !i.done).length;
     return `
       <section>
-        <div class="section-head">
-          <h2>${shop} <span class="muted small">${open} offen</span></h2>
-          ${open ? `<button class="link" data-action="copy-list" data-shop="${shop}">📋 Kopieren</button>` : ''}
-        </div>
+        <h2 class="cat-head"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted small">${open || '✓'}</span></h2>
         <ul class="card shop-list">
           ${list
             .map(
               (i) => `<li class="${i.done ? 'done' : ''}">
                 <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? '✓' : ''}</button>
                 <span class="name" data-action="toggle-item" data-id="${i.id}">${esc(i.name)}</span>
-                <button class="icon-btn" data-action="delete-item" data-id="${i.id}" aria-label="Löschen">✕</button>
+                <button class="icon-btn" data-action="edit-item" data-id="${i.id}" aria-label="Kategorie ändern oder löschen">⋯</button>
               </li>`
             )
             .join('')}
@@ -451,24 +481,57 @@ function viewEinkauf() {
       </section>`;
   }).join('');
 
+  const names = [...new Set(state.data.products.map((p) => p.name))].sort((a, b) => a.localeCompare(b));
+  const anyOpen = items.some((i) => !i.done);
+
   return `
+    ${state.data.missing?.includes('products') ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-2.sql in Supabase ausführen.</div>' : ''}
     <form class="card add-item" data-form="add-item">
-      <input name="name" placeholder="Was fehlt?" autocomplete="off" enterkeyhint="done" required />
-      <select name="shop">${SHOPS.map((s) => `<option ${s === state.shop ? 'selected' : ''}>${s}</option>`).join('')}</select>
-      <button class="btn primary" type="submit">+</button>
+      <input name="name" list="product-list" placeholder="Was fehlt?" autocomplete="off" enterkeyhint="done" required />
+      <button class="btn primary" type="submit" aria-label="Hinzufügen">+</button>
     </form>
+    <div class="cat-hint" id="cat-hint"></div>
+    <datalist id="product-list">${names.map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
     ${
       quick.length
         ? `<div class="quick">${quick
             .map(
-              (q) => `<button class="quick-chip" data-action="quick-add" data-name="${esc(q.name)}" data-shop="${esc(q.shop)}">
-                + ${esc(q.name)}${q.shop === 'Getränke' ? ' <span class="muted small">🥤</span>' : ''}</button>`
+              (q) => `<button class="quick-chip" data-action="quick-add" data-name="${esc(q.name)}">
+                ${categoryOf(q.category).icon} ${esc(q.name)}</button>`
             )
             .join('')}</div>`
         : ''
     }
     ${groups || '<p class="empty">Die Liste ist leer.</p>'}
-    ${items.some((i) => i.done) ? '<button class="btn ghost wide" data-action="clear-done">Erledigte entfernen</button>' : ''}`;
+    <div class="shop-actions">
+      ${anyOpen ? '<button class="btn ghost" data-action="copy-list">📋 Liste kopieren</button>' : ''}
+      ${items.some((i) => i.done) ? '<button class="btn ghost" data-action="clear-done">Erledigte entfernen</button>' : ''}
+    </div>`;
+}
+
+function itemForm(item) {
+  const current = itemCategory(item);
+  const inner = `
+    <label>Name<input name="name" value="${esc(item.name)}" required /></label>
+    <div class="cat-grid">
+      ${CATEGORIES.map(
+        (c) => `<label><input type="radio" name="category" value="${c.id}" ${c.id === current ? 'checked' : ''}/>
+          <span><b>${c.icon}</b>${esc(c.label)}</span></label>`
+      ).join('')}
+    </div>
+    <p class="muted small">Die App merkt sich die Kategorie für das nächste Mal.</p>`;
+  openSheet(
+    'Artikel',
+    inner,
+    (f) => {
+      const name = f.get('name').trim();
+      const category = f.get('category') || current;
+      save('shopping_items', { id: item.id, name, category });
+      rememberProduct(name, category, { countUse: false });
+      closeSheet();
+    },
+    `<button type="button" class="btn danger wide" data-action="delete-item" data-id="${item.id}">Artikel löschen</button>`
+  );
 }
 
 function viewMehr() {
@@ -476,7 +539,10 @@ function viewMehr() {
   const events = [...state.data.events]
     .filter((e) => e.weekdays?.length || (e.date && e.date >= D.todayKey()))
     .sort((a, b) => !!b.weekdays?.length - !!a.weekdays?.length || (a.date || '').localeCompare(b.date || '') || a.title.localeCompare(b.title));
-  const tasks = state.data.tasks.filter((t) => t.weekdays?.length || !t.done_at);
+  const tasks = state.data.tasks.filter((t) => !isReminder(t) && (t.weekdays?.length || !t.done_at));
+  const reminders = state.data.tasks
+    .filter((t) => isReminder(t) && !t.done_at)
+    .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || '') || (a.due_time || '').localeCompare(b.due_time || ''));
 
   const when = (x) =>
     x.weekdays?.length
@@ -531,6 +597,24 @@ function viewMehr() {
     </section>
 
     <section>
+      <div class="section-head"><h2>Offene Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
+      <ul class="card list">
+        ${
+          reminders.length
+            ? reminders
+                .map(
+                  (t) => `<li><button data-action="edit-task" data-id="${t.id}">
+                    <span class="grow">🔔 ${esc(t.title)} ${chips(peopleOf(t))}</span>
+                    <span class="muted small">${esc(when(t))}${t.due_time ? ` · ${D.hm(t.due_time)}` : ''}</span>
+                  </button></li>`
+                )
+                .join('')
+            : '<li class="empty">Keine Erinnerungen</li>'
+        }
+      </ul>
+    </section>
+
+    <section>
       <div class="section-head"><h2>Offene &amp; wiederkehrende Aufgaben</h2><button class="link" data-action="new-task">+ Aufgabe</button></div>
       <ul class="card list">
         ${
@@ -538,7 +622,7 @@ function viewMehr() {
             ? tasks
                 .map(
                   (t) => `<li><button data-action="edit-task" data-id="${t.id}">
-                    <span class="grow">${esc(t.title)} ${t.sofa ? '🛋️' : ''} ${chip(t.assignee)}</span>
+                    <span class="grow">${esc(t.title)} ${t.sofa ? '🛋️' : ''} ${chips(peopleOf(t))}</span>
                     <span class="muted small">${esc(when(t))}</span>
                   </button></li>`
                 )
@@ -807,13 +891,64 @@ function updateDriverVisibility(form) {
   if (box && cb) box.hidden = !cb.checked;
 }
 
+// Mehrfachauswahl von Personen ("für wen?")
+function peoplePicker(selected) {
+  const ms = [...members()].sort((a, b) => (a.role === 'kind') - (b.role === 'kind'));
+  return `<div class="people">${ms
+    .map(
+      (m) => `<label><input type="checkbox" name="who" value="${m.id}" ${selected.includes(m.id) ? 'checked' : ''}/>
+        <span style="--c:${esc(m.color)}">${esc(m.name)}</span></label>`
+    )
+    .join('')}</div>`;
+}
+const readPeople = () => [...$('#sheet-root form').querySelectorAll('input[name="who"]:checked')].map((i) => i.value);
+
+function reminderForm(t, day) {
+  const isNew = !t;
+  t ||= { due_date: day || state.date, assignees: state.me ? [state.me] : [] };
+  const inner = `
+    <label>Woran erinnern?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Turnbeutel einpacken" required /></label>
+    <div class="row">
+      <label>Tag<input type="date" name="due_date" value="${esc(t.due_date || state.date)}" required /></label>
+      <label>Uhrzeit (optional)<input type="time" name="due_time" value="${esc(D.hm(t.due_time))}" /></label>
+    </div>
+    <div class="field-label">Für wen? <span class="muted small">(mehrere möglich – jede/r kann abhaken)</span></div>
+    ${peoplePicker(peopleOf(t))}
+    <label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`;
+  const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Erinnerung löschen</button>`;
+  openSheet(
+    isNew ? 'Neue Erinnerung' : 'Erinnerung bearbeiten',
+    inner,
+    (f) => {
+      const people = readPeople();
+      save('tasks', {
+        id: t.id,
+        kind: 'erinnerung',
+        title: f.get('title').trim(),
+        assignees: people,
+        assignee: people[0] || null,
+        due_date: f.get('due_date') || state.date,
+        due_time: f.get('due_time') || null,
+        weekdays: null,
+        sofa: false,
+        notes: f.get('notes').trim() || null,
+        done_at: t.done_at ?? null,
+        done_by: t.done_by ?? null,
+      });
+      closeSheet();
+    },
+    extra
+  );
+}
+
 function taskForm(t, day) {
   const isNew = !t;
   t ||= { assignee: null, due_date: day || state.date };
   const mode = t.weekdays?.length ? 'weekly' : t.due_date ? 'date' : 'none';
   const inner = `
     <label>Was?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Getränke bestellen" required /></label>
-    <label>Wer?<select name="assignee">${memberOptions(t.assignee, { empty: '– egal / wer Zeit hat –' })}</select></label>
+    <div class="field-label">Wer? <span class="muted small">(leer = wer Zeit hat)</span></div>
+    ${peoplePicker(peopleOf(t))}
     ${repeatSwitch('repeat', mode, [
       ['none', 'Ohne Datum'],
       ['date', 'An einem Tag'],
@@ -833,10 +968,13 @@ function taskForm(t, day) {
       const repeat = f.get('repeat');
       const wds = readWeekdays($('#sheet-root form'));
       if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
+      const people = readPeople();
       save('tasks', {
         id: t.id,
+        kind: 'aufgabe',
         title: f.get('title').trim(),
-        assignee: f.get('assignee') || null,
+        assignees: people,
+        assignee: people[0] || null,
         due_date: repeat === 'date' ? f.get('due_date') || state.date : null,
         weekdays: repeat === 'weekly' ? wds : null,
         sofa: f.get('sofa') === 'on',
@@ -886,6 +1024,7 @@ function addChooser() {
     <div class="backdrop" data-action="close-sheet"></div>
     <div class="sheet chooser">
       <button class="btn big" data-action="new-event">📅 Termin</button>
+      <button class="btn big" data-action="new-reminder">🔔 Erinnerung</button>
       <button class="btn big" data-action="new-task">☑️ Aufgabe</button>
       <button class="btn ghost wide" data-action="close-sheet">Abbrechen</button>
     </div>`;
@@ -941,7 +1080,11 @@ const actions = {
     render();
   },
   'toggle-task': (d) => toggleTask(d.id, d.day),
-  'edit-task': (d) => taskForm(state.data.tasks.find((t) => t.id === d.id)),
+  'edit-task': (d) => {
+    const t = state.data.tasks.find((x) => x.id === d.id);
+    if (t) (isReminder(t) ? reminderForm : taskForm)(t);
+  },
+  'new-reminder': () => reminderForm(null, state.date),
   'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
   'edit-member': (d) => memberForm(member(d.id)),
   'new-event': () => eventForm(null, state.date),
@@ -961,7 +1104,8 @@ const actions = {
     del('events', d.id);
   },
   'delete-task': (d) => {
-    if (!confirm('Aufgabe löschen?')) return;
+    const t = state.data.tasks.find((x) => x.id === d.id);
+    if (!confirm(t && isReminder(t) ? 'Erinnerung löschen?' : 'Aufgabe löschen?')) return;
     closeSheet();
     del('tasks', d.id);
   },
@@ -983,9 +1127,16 @@ const actions = {
     const i = state.data.shopping_items.find((x) => x.id === d.id);
     if (i) save('shopping_items', { id: i.id, done: !i.done });
   },
-  'delete-item': (d) => del('shopping_items', d.id),
+  'delete-item': (d) => {
+    closeSheet();
+    del('shopping_items', d.id);
+  },
+  'edit-item': (d) => {
+    const i = state.data.shopping_items.find((x) => x.id === d.id);
+    if (i) itemForm(i);
+  },
   'quick-add': (d) => {
-    addItem(d.name, SHOPS.includes(d.shop) ? d.shop : 'Sonstiges');
+    addItem(d.name);
     toast(`${d.name} hinzugefügt`);
   },
   'clear-done': async () => {
@@ -998,11 +1149,9 @@ const actions = {
       fail(e);
     }
   },
-  'copy-list': async (d) => {
-    const text = state.data.shopping_items
-      .filter((i) => !i.done && (SHOPS.includes(i.shop) ? i.shop : 'Sonstiges') === d.shop)
-      .map((i) => i.name)
-      .join('\n');
+  'copy-list': async () => {
+    const open = state.data.shopping_items.filter((i) => !i.done);
+    const text = CATEGORIES.flatMap((c) => open.filter((i) => itemCategory(i) === c.id).map((i) => i.name)).join('\n');
     try {
       await navigator.clipboard.writeText(text);
       toast('Liste kopiert.');
@@ -1052,9 +1201,14 @@ document.addEventListener('change', (e) => {
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
   if (el.name === 'needs_driver') updateDriverVisibility(el.form);
-  if (el.form?.dataset.form === 'add-item' && el.name === 'shop') {
-    state.shop = el.value;
-    lsSet('fo-shop', el.value);
+});
+
+// Beim Tippen im Einkauf anzeigen, in welche Kategorie der Artikel kommt
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.form?.dataset.form === 'add-item' && el.name === 'name') {
+    const hint = $('#cat-hint');
+    if (hint) hint.textContent = categoryHint(el.value) ? `→ ${categoryHint(el.value)}` : '';
   }
 });
 
@@ -1096,13 +1250,10 @@ document.addEventListener('submit', async (e) => {
   if (kind === 'add-item') {
     const name = f.get('name').trim();
     if (!name) return;
-    const shop = f.get('shop');
-    state.shop = shop;
-    lsSet('fo-shop', shop);
     const input = form.querySelector('input[name="name"]');
     input.value = '';
     input.blur(); // sonst wird die Liste nicht neu gezeichnet
-    addItem(name, shop); // zeichnet sofort neu
+    addItem(name); // zeichnet sofort neu
     $('#main form.add-item input[name="name"]')?.focus();
   }
 
@@ -1191,6 +1342,18 @@ async function seedIfEmpty() {
   }
 }
 
+// Produktkatalog einmalig in die Datenbank schreiben (läuft im Hintergrund)
+async function seedProductsIfEmpty() {
+  if (state.data.products.length || state.data.missing?.includes('products')) return;
+  const rows = seedProducts().map((p) => ({ id: store.uuid(), ...p, uses: 0 }));
+  state.data.products = rows;
+  try {
+    await store.upsertMany('products', rows, 'key', true);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 async function startData() {
   state.data = await store.loadAll();
   try {
@@ -1199,6 +1362,7 @@ async function startData() {
     console.error(e);
     toast('Startdaten konnten nicht angelegt werden.');
   }
+  seedProductsIfEmpty();
   store.subscribe(debounce(() => reload(), 400));
   render();
 }

@@ -929,3 +929,117 @@ section {
 .quick-chip:active {
   background: var(--accent-soft);
 }
+
+/* Einkauf nach Kategorien */
+.cat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+.cat-icon {
+  font-size: 20px;
+}
+.cat-hint {
+  min-height: 20px;
+  margin: 6px 4px 0;
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.add-item .btn {
+  width: 50px;
+}
+.shop-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.shop-actions .btn {
+  flex: 1;
+}
+.shop-list .icon-btn {
+  font-size: 20px;
+  line-height: 1;
+}
+.cat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cat-grid label,
+.people label {
+  position: relative;
+}
+.cat-grid input,
+.people input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.cat-grid span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.cat-grid b {
+  font-size: 20px;
+  font-weight: 400;
+}
+.cat-grid input:checked + span {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Personen-Auswahl */
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: -4px;
+}
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.people span {
+  display: block;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+.people input:checked + span {
+  background: var(--c);
+  border-color: var(--c);
+  color: #fff;
+}
+
+/* Erinnerungen */
+.reminders {
+  border-left: 4px solid var(--accent);
+}
+.tag.time {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tag.time.red {
+  background: var(--red-soft);
+  color: var(--red);
+}
