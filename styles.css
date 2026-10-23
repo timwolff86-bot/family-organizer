@@ -1052,3 +1052,64 @@ section {
 .wd-presets .link {
   font-size: 14px;
 }
+
+/* Profilbilder */
+.av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
+}
+.av-initial {
+  display: inline-grid;
+  place-items: center;
+  background: var(--c);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+}
+.av.small {
+  width: 22px;
+  height: 22px;
+  margin: -4px 6px -4px -8px;
+  vertical-align: middle;
+}
+.av.big {
+  width: 84px;
+  height: 84px;
+  font-size: 34px;
+}
+.btn.big .av {
+  width: 40px;
+  height: 40px;
+  margin-right: 12px;
+  font-size: 18px;
+}
+.chip.with-av {
+  padding-left: 2px;
+}
+.chip-av {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.people span {
+  display: inline-flex;
+  align-items: center;
+}
+.avatar-edit {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.avatar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.avatar-actions .btn {
+  cursor: pointer;
+}

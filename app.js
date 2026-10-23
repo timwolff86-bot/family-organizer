@@ -45,7 +45,37 @@ const meMember = () => member(state.me);
 function chip(id, fallback = '') {
   const m = member(id);
   if (!m) return fallback;
-  return `<span class="chip" style="--c:${esc(m.color)}">${esc(m.name)}</span>`;
+  const img = m.avatar ? `<img class="chip-av" src="${esc(m.avatar)}" alt="" />` : '';
+  return `<span class="chip ${img ? 'with-av' : ''}" style="--c:${esc(m.color)}">${img}${esc(m.name)}</span>`;
+}
+
+// Profilbild oder farbiger Kreis mit Anfangsbuchstabe
+function avatar(m, cls = '') {
+  if (m?.avatar) return `<img class="av ${cls}" src="${esc(m.avatar)}" alt="" />`;
+  return `<span class="av av-initial ${cls}" style="--c:${esc(m?.color || '#888')}">${esc((m?.name || '?').trim().charAt(0).toUpperCase())}</span>`;
+}
+
+// Foto quadratisch zuschneiden und verkleinern → kleines JPEG als Text (ca. 10 KB)
+function resizeImage(file, size = 160) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      canvas
+        .getContext('2d')
+        .drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Bild konnte nicht gelesen werden'));
+    };
+    img.src = url;
+  });
 }
 
 let toastTimer;
@@ -571,7 +601,7 @@ function viewMehr() {
         ${ms
           .map(
             (m) => `<li><button data-action="edit-member" data-id="${m.id}">
-              <span class="dot" style="background:${esc(m.color)}"></span>
+              ${avatar(m)}
               <span class="grow">${esc(m.name)} <span class="muted small">${ROLES[m.role] || ''}</span></span>
               ${m.drives ? '<span title="Kann fahren">🚗</span>' : ''}
             </button></li>`
@@ -750,7 +780,7 @@ function whoScreen() {
       <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Mehr“ geändert werden.</p>
       <div class="who">
         ${(ms.length ? ms : members())
-          .map((m) => `<button class="btn big" style="--c:${esc(m.color)}" data-action="set-me" data-id="${m.id}">${esc(m.name)}</button>`)
+          .map((m) => `<button class="btn big" style="--c:${esc(m.color)}" data-action="set-me" data-id="${m.id}">${avatar(m)}${esc(m.name)}</button>`)
           .join('')}
       </div>
     </div>`;
@@ -904,7 +934,7 @@ function peoplePicker(selected) {
   return `<div class="people">${ms
     .map(
       (m) => `<label><input type="checkbox" name="who" value="${m.id}" ${selected.includes(m.id) ? 'checked' : ''}/>
-        <span style="--c:${esc(m.color)}">${esc(m.name)}</span></label>`
+        <span style="--c:${esc(m.color)}">${m.avatar ? avatar(m, 'small') : ''}${esc(m.name)}</span></label>`
     )
     .join('')}</div>`;
 }
@@ -1006,6 +1036,14 @@ function memberForm(m) {
   const isNew = !m;
   m ||= { role: 'kind', drives: false, color: COLORS[members().length % COLORS.length], sort: members().length };
   const inner = `
+    <div class="avatar-edit">
+      <div id="avatar-preview">${avatar(m, 'big')}</div>
+      <div class="avatar-actions">
+        <label class="btn ghost">📷 Foto wählen<input type="file" id="avatar-file" accept="image/*" hidden /></label>
+        <button type="button" class="link" data-action="remove-avatar" ${m.avatar ? '' : 'hidden'}>Foto entfernen</button>
+      </div>
+      <input type="hidden" name="avatar" id="avatar-value" value="${esc(m.avatar || '')}" />
+    </div>
     <label>Name<input name="name" value="${esc(m.name || '')}" required /></label>
     <label>Rolle<select name="role">${Object.entries(ROLES)
       .map(([k, l]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${l}</option>`)
@@ -1019,14 +1057,17 @@ function memberForm(m) {
     isNew ? 'Neue Person' : 'Person bearbeiten',
     inner,
     (f) => {
-      save('members', {
+      const row = {
         id: m.id,
         name: f.get('name').trim(),
         role: f.get('role'),
         drives: f.get('drives') === 'on',
         color: f.get('color') || m.color,
         sort: m.sort ?? 0,
-      });
+      };
+      // Bild nur mitschicken, wenn es geändert wurde
+      if ($('#avatar-value').dataset.changed) row.avatar = f.get('avatar') || null;
+      save('members', row);
       closeSheet();
     },
     extra
@@ -1099,6 +1140,15 @@ const actions = {
     if (t) (isReminder(t) ? reminderForm : taskForm)(t);
   },
   'new-reminder': () => reminderForm(null, state.date),
+  'remove-avatar': (d, el) => {
+    const v = $('#avatar-value');
+    v.value = '';
+    v.dataset.changed = '1';
+    const name = $('#sheet-root input[name="name"]').value;
+    const color = $('#sheet-root input[name="color"]:checked')?.value;
+    $('#avatar-preview').innerHTML = avatar({ name, color }, 'big');
+    el.hidden = true;
+  },
   'wd-preset': (d, el) => {
     const days = d.days.split(',');
     el.closest('form').querySelectorAll('input[name="wd"]').forEach((i) => (i.checked = days.includes(i.value)));
@@ -1199,8 +1249,21 @@ document.addEventListener('click', (e) => {
   fn(el.dataset, el);
 });
 
-document.addEventListener('change', (e) => {
+document.addEventListener('change', async (e) => {
   const el = e.target;
+  if (el.id === 'avatar-file' && el.files?.[0]) {
+    try {
+      const data = await resizeImage(el.files[0]);
+      const v = $('#avatar-value');
+      v.value = data;
+      v.dataset.changed = '1';
+      $('#avatar-preview').innerHTML = avatar({ avatar: data }, 'big');
+      $('[data-action="remove-avatar"]').hidden = false;
+    } catch {
+      toast('Das Bild konnte nicht geladen werden.');
+    }
+    return;
+  }
   if (el.id === 'date-picker' && el.value) {
     state.date = el.value;
     render();

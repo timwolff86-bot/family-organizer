@@ -104,6 +104,9 @@ alter table public.tasks add column if not exists due_time time;
 alter table public.tasks add column if not exists assignees uuid[];
 alter table public.tasks add column if not exists done_by uuid references public.members (id) on delete set null;
 
+-- Profilbilder (Update 3)
+alter table public.members add column if not exists avatar text;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
