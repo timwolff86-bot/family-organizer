@@ -445,7 +445,7 @@ function eventsOn(day) {
     if (weekly && replaced.has(`${ev.id}|${day}`)) continue;
     // Einmalige Termine können über mehrere Tage gehen (date … end_date)
     const hit = weekly
-      ? ev.weekdays.includes(wd) && (!ev.end_date || ev.end_date >= day)
+      ? ev.weekdays.includes(wd) && (!ev.end_date || ev.end_date >= day) && (!ev.date || ev.date <= day)
       : ev.date && ev.date <= day && (ev.end_date || ev.date) >= day;
     if (!hit) continue;
     const occ = state.data.event_occurrences.find((o) => o.event_id === ev.id && o.date === day);
@@ -1658,7 +1658,7 @@ function eventDays(ev, range) {
     return { day: end >= today && ev.date < today ? today : ev.date, upcoming: end >= today };
   }
   const replaced = replacedDays();
-  const hits = (d) => ev.weekdays.includes(D.isoWeekday(d)) && (!ev.end_date || ev.end_date >= d) && !cancelled(d) && !replaced.has(`${ev.id}|${d}`);
+  const hits = (d) => ev.weekdays.includes(D.isoWeekday(d)) && (!ev.end_date || ev.end_date >= d) && (!ev.date || ev.date <= d) && !cancelled(d) && !replaced.has(`${ev.id}|${d}`);
   const start = range ? (range.from > today ? range.from : today) : today;
   const stop = range ? range.to : D.addDays(today, 60);
   for (let d = start; d <= stop; d = D.addDays(d, 1)) if (hits(d) && (!range || range.test(d))) return { day: d, upcoming: true };
@@ -2106,37 +2106,39 @@ function eventForm(ev, day) {
   const multi = !weekly && ev.end_date && ev.end_date > ev.date;
   const allDay = !!ev.all_day;
   const o = !isNew && day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
-  // Termin einer Serie an einem bestimmten Tag: wahlweise nur diesen Tag ändern
+  // Ein bestimmter Termin einer Serie: beim Sichern wird gefragt, wofür die Änderung gilt
   const occurrence = !!(o && o.weekly);
   const exception = !isNew && ev.series_id ? state.data.events.find((x) => x.id === ev.series_id) : null;
 
+  const hint = occurrence
+    ? `<p class="banner soft">Serientermin (${esc(rhythmShort(ev))}). Beim Sichern wählst du: nur dieser Termin, dieser und alle folgenden oder alle.</p>`
+    : weekly && !isNew
+      ? `<p class="banner soft">Änderungen gelten für die ganze Serie. Einzelne Termine findest du unten unter „Einzelne Termine anzeigen“.</p>`
+      : exception
+        ? `<p class="banner soft">Einmalig geänderter Termin der Serie „${esc(exception.title)}“ (sonst ${esc(rhythmShort(exception))}).</p>`
+        : '';
+
   const inner = `
-    ${
-      occurrence
-        ? `<div class="field-label">Ändern</div>
-           <div class="seg wide scope-switch">
-             <label><input type="radio" name="scope" value="one" checked /><span>Nur ${esc(D.formatShort(day))}</span></label>
-             <label><input type="radio" name="scope" value="all" /><span>Ganze Serie</span></label>
-           </div>`
-        : ''
-    }
-    ${exception ? `<p class="banner soft">Einmalig geänderter Termin der Serie „${esc(exception.title)}“ (sonst ${esc(rhythmShort(exception))}).</p>` : ''}
+    ${hint}
     <label>Was?<input name="title" value="${esc(ev.title || '')}" placeholder="z. B. Pickleball" required /></label>
     <div class="field-label">Für wen? <span class="muted small">(mehrere möglich)</span></div>
     ${peoplePicker(eventPeople(ev))}
-    ${occurrence ? `<label data-scope="one">Datum<input type="date" name="date_one" value="${esc(day)}" /></label>` : ''}
-    <div class="scope-all" ${occurrence ? 'data-scope="all" hidden' : ''} ${exception ? 'hidden' : ''}>
+    ${occurrence ? `<label class="plain">Datum dieses Termins<input type="date" name="date_one" value="${esc(day)}" /></label>` : ''}
+    <div class="scope-all">
+    <div ${occurrence || exception ? 'hidden' : ''}>
     ${repeatSwitch('repeat', weekly ? 'weekly' : multi ? 'multi' : 'once', [
       ['once', 'Ein Tag'],
       ['multi', 'Mehrere Tage'],
       ['weekly', 'Jede Woche'],
     ])}
+    </div>
     <label data-show="once">Datum<input type="date" name="date_once" value="${esc(ev.date || state.date)}" /></label>
     <div class="row" data-show="multi">
       <label>Von<input type="date" name="date_from" value="${esc(ev.date || state.date)}" /></label>
       <label>Bis<input type="date" name="date_to" value="${esc(multi ? ev.end_date : D.addDays(ev.date || state.date, 1))}" /></label>
     </div>
     <div data-show="weekly">
+      ${occurrence ? '<div class="field-label">Wiederholung</div>' : ''}
       ${weekdayPicker(ev.weekdays || [D.isoWeekday(day || state.date)])}
       <label>Serie endet am (optional)<input type="date" name="series_end" value="${esc(weekly ? ev.end_date || '' : '')}" /></label>
     </div>
@@ -2155,7 +2157,7 @@ function eventForm(ev, day) {
   const extra = isNew
     ? ''
     : `${
-        o && o.weekly
+        occurrence
           ? `<button type="button" class="btn ghost wide" data-action="toggle-cancel" data-id="${ev.id}" data-day="${day}">
                ${o.cancelled ? `Am ${D.formatShort(day)} findet es doch statt` : `Nur am ${D.formatShort(day)}: fällt aus`}</button>`
           : ''
@@ -2180,12 +2182,6 @@ function eventForm(ev, day) {
         location: f.get('location').trim() || null,
         notes: f.get('notes').trim() || null,
       };
-      // Nur diesen Tag ändern: eigener Termin, der den Serientermin an diesem Tag ersetzt
-      if (occurrence && f.get('scope') === 'one') {
-        saveConfirm('events', { ...common, date: f.get('date_one') || day, weekdays: null, end_date: null, series_id: ev.id, series_date: day }, 'termin', false);
-        closeSheet();
-        return;
-      }
       if (exception) {
         saveConfirm('events', { ...common, id: ev.id, date: f.get('date_once') || ev.date }, 'termin', false);
         closeSheet();
@@ -2194,6 +2190,37 @@ function eventForm(ev, day) {
       const repeat = f.get('repeat');
       const wds = readWeekdays($('#sheet-root form'));
       if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
+
+      if (occurrence) {
+        const seriesEnd = f.get('series_end') || null;
+        const newDay = f.get('date_one') || day;
+        const seriesChanged = [...wds].sort().join() !== [...ev.weekdays].sort().join() || seriesEnd !== (ev.end_date || null);
+        const moved = newDay !== day;
+        const norm = (k, v) => (k.endsWith('_time') ? D.hm(v) || '' : v ?? '');
+        const fieldsChanged =
+          ['title', 'start_time', 'end_time', 'location', 'notes'].some((k) => norm(k, common[k]) !== norm(k, ev[k])) ||
+          !!common.all_day !== !!ev.all_day ||
+          [...common.member_ids].sort().join() !== [...eventPeople(ev)].sort().join();
+        if (!seriesChanged && !moved && !fieldsChanged) return closeSheet();
+        const options = [
+          !seriesChanged && ['one', `Nur dieser Termin (${D.formatShort(day)})`],
+          !moved && ['following', 'Dieser und alle folgenden'],
+          !moved && ['all', 'Alle Termine der Serie'],
+        ].filter(Boolean);
+        const apply = (scope) => {
+          if (scope === 'one') {
+            saveConfirm('events', { ...common, date: newDay, weekdays: null, end_date: null, series_id: ev.id, series_date: day }, 'termin', false);
+          } else if (scope === 'following') {
+            splitSeries(ev, day, { ...common, weekdays: wds, end_date: seriesEnd });
+          } else {
+            saveConfirm('events', { ...common, id: ev.id, weekdays: wds, end_date: seriesEnd, date: ev.date ?? null }, 'termin', false);
+          }
+          closeSheet();
+        };
+        if (options.length === 1) return apply(options[0][0]);
+        return askScope(options, apply);
+      }
+
       let date = null;
       let endDate = null;
       if (repeat === 'once') date = f.get('date_once') || state.date;
@@ -2207,7 +2234,8 @@ function eventForm(ev, day) {
       saveConfirm('events', {
         ...common,
         id: ev.id,
-        date,
+        // Serie: Beginn behalten (wichtig nach "dieser und alle folgenden")
+        date: repeat === 'weekly' ? (weekly ? ev.date ?? null : null) : date,
         weekdays: repeat === 'weekly' ? wds : null,
         end_date: endDate,
       }, 'termin', isNew);
@@ -2216,12 +2244,56 @@ function eventForm(ev, day) {
     extra
   );
   updateRepeatVisibility($('#sheet-root form'));
-  // Ausnahme: immer "Ein Tag", das Datumsfeld bleibt sichtbar
-  if (exception) {
-    const form = $('#sheet-root form');
-    form.querySelector('.scope-all').hidden = false;
-    form.querySelector('[data-repeat="repeat"]').hidden = true;
+}
+
+// Abfrage beim Sichern eines Serientermins: wofür gilt die Änderung?
+function askScope(options, onPick) {
+  const root = $('#sheet-root');
+  root.querySelector('.scope-dlg')?.remove();
+  $('#toast').classList.remove('show'); // eine alte Meldung soll die Abfrage nicht verdecken
+  root.insertAdjacentHTML(
+    'beforeend',
+    `<div class="scope-dlg" role="dialog" aria-label="Änderung speichern für">
+      <div class="scope-card">
+        <strong>Änderung speichern für …</strong>
+        ${options.map(([k, l], i) => `<button type="button" class="btn ${i === 0 ? 'primary' : 'ghost'} wide" data-scope-pick="${k}">${esc(l)}</button>`).join('')}
+        <button type="button" class="link" data-scope-pick="">Abbrechen</button>
+      </div>
+    </div>`
+  );
+  const dlg = root.querySelector('.scope-dlg');
+  dlg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-scope-pick]');
+    if (!b && e.target !== dlg) return;
+    e.stopPropagation();
+    dlg.remove();
+    if (b?.dataset.scopePick) onPick(b.dataset.scopePick);
+  });
+}
+
+// "Dieser und alle folgenden": alte Serie endet am Vortag, ab diesem Tag gilt eine neue Serie.
+// Ausfälle und Einzeländerungen ab diesem Tag wandern zur neuen Serie.
+async function splitSeries(ev, day, changes) {
+  const hasEarlier = (() => {
+    const from = ev.date || D.addDays(day, -400);
+    for (let d = D.addDays(day, -1); d >= from; d = D.addDays(d, -1)) if (ev.weekdays.includes(D.isoWeekday(d))) return true;
+    return false;
+  })();
+  if (!hasEarlier) {
+    // Erster Termin der Serie: einfach die ganze Serie ändern
+    saveConfirm('events', { ...changes, id: ev.id, date: ev.date ?? null }, 'termin', false);
+    return;
   }
+  const newId = store.uuid();
+  const next = { ...changes, id: newId, date: day };
+  const children = [
+    ...state.data.events.filter((x) => x.series_id === ev.id && x.series_date >= day).map((x) => ['events', { id: x.id, series_id: newId }]),
+    ...state.data.event_occurrences.filter((x) => x.event_id === ev.id && x.date >= day).map((x) => ['event_occurrences', { id: x.id, event_id: newId }]),
+  ];
+  // Nacheinander, damit die neue Serie in der Datenbank steht, bevor etwas auf sie verweist
+  await saveConfirm('events', next, 'termin', false);
+  for (const [t, row] of children) await save(t, row);
+  await save('events', { id: ev.id, end_date: D.addDays(day, -1) });
 }
 
 // Die nächsten Termine einer Serie (mit Ausfällen und Einzeländerungen), jeder antippbar
@@ -2229,7 +2301,7 @@ function occurrenceList(ev, n) {
   const today = D.todayKey();
   const rows = [];
   let more = false;
-  for (let d = today, i = 0; i < 400; i++, d = D.addDays(d, 1)) {
+  for (let d = ev.date && ev.date > today ? ev.date : today, i = 0; i < 400; i++, d = D.addDays(d, 1)) {
     if (ev.end_date && d > ev.end_date) break;
     if (!ev.weekdays.includes(D.isoWeekday(d))) continue;
     if (rows.length === n) {
@@ -2258,10 +2330,6 @@ function occurrenceList(ev, n) {
 
 const rhythmShort = (ev) => `jeden ${[...(ev.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}`;
 
-function updateScopeVisibility(form) {
-  const one = form.querySelector('input[name="scope"]:checked')?.value === 'one';
-  form.querySelectorAll('[data-scope]').forEach((el) => (el.hidden = (el.dataset.scope === 'one') !== one));
-}
 
 
 // Selten gebrauchte Felder einklappen; offen, wenn schon etwas eingetragen ist
@@ -2998,7 +3066,6 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
-  if (el.name === 'scope') updateScopeVisibility(el.form);
   if (el.name === 'rhythm') updateRhythmVisibility(el.form);
   if (el.name === 'all_day') el.form.querySelector('[data-times]').hidden = el.checked;
   if (el.name === 'repeat' && el.form.querySelector('[data-time-label]')) {
