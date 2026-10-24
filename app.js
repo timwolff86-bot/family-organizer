@@ -206,6 +206,7 @@ let toastTimer;
 // Kurze Meldung unten. Mit action: Knopf (z. B. "Rückgängig"), bleibt dann etwas länger stehen.
 function toast(msg, action = null) {
   const el = $('#toast');
+  el.classList.remove('confirm');
   el.innerHTML = `<span>${esc(msg)}</span>${action ? `<button type="button" class="toast-btn">${esc(action.label)}</button>` : ''}`;
   el.classList.toggle('has-action', !!action);
   el.classList.add('show');
@@ -217,6 +218,115 @@ function toast(msg, action = null) {
   }
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), action ? 6000 : 2600);
+}
+
+// Bestätigung nach dem Sichern: kurze Zusammenfassung zum Abgleich + "Bearbeiten".
+// Bleibt stehen, solange der Finger darauf liegt; nach unten wischen schließt sie.
+const CONFIRM_MS = 6000;
+function confirmToast(head, lines, onEdit) {
+  const el = $('#toast');
+  el.className = 'confirm';
+  el.innerHTML = `
+    <div class="cf-text">
+      <div class="cf-head">✓ ${esc(head)}</div>
+      ${lines.filter(Boolean).map((l, i) => `<div class="${i ? 'cf-sub' : 'cf-main'}">${esc(l)}</div>`).join('')}
+    </div>
+    <button type="button" class="toast-btn">Bearbeiten</button>`;
+  const hide = () => el.classList.remove('show');
+  const arm = (ms) => {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hide, ms);
+  };
+  el.querySelector('.toast-btn').onclick = () => {
+    hide();
+    onEdit();
+  };
+  let startY = null;
+  el.onpointerdown = (e) => {
+    startY = e.clientY;
+    clearTimeout(toastTimer);
+  };
+  el.onpointermove = (e) => {
+    if (startY != null && e.clientY - startY > 30) {
+      startY = null;
+      hide();
+    }
+  };
+  el.onpointerup = el.onpointercancel = () => {
+    startY = null;
+    if (el.classList.contains('show')) arm(2500);
+  };
+  requestAnimationFrame(() => el.classList.add('show'));
+  arm(CONFIRM_MS);
+}
+
+const namesOf = (ids) => ids.map((id) => member(id)?.name).filter(Boolean).join(', ');
+const timeRange = (a, b) => (D.hm(a) ? `${D.hm(a)}${D.hm(b) ? `–${D.hm(b)}` : ''} Uhr` : '');
+
+// Zusammenfassung je Art: [Kopf, Hauptzeile, Zusatzzeile], dazu "Bearbeiten"
+function confirmSaved(kind, id, isNew) {
+  const verb = isNew ? 'eingetragen' : 'geändert';
+  const find = (table) => state.data[table].find((r) => r.id === id);
+  if (kind === 'termin') {
+    const ev = find('events');
+    if (!ev) return;
+    const weekly = ev.weekdays?.length > 0;
+    const when = weekly
+      ? `jeden ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}${ev.end_date ? ` bis ${D.formatDayMonth(ev.end_date)}` : ''}`
+      : ev.end_date && ev.end_date > ev.date
+        ? `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}`
+        : D.formatShort(ev.date);
+    const time = ev.all_day ? 'ganztägig' : timeRange(ev.start_time, ev.end_time);
+    const people = namesOf(eventPeople(ev));
+    confirmToast(
+      `Termin ${verb}`,
+      [[ev.title, when, time].filter(Boolean).join(' · '), [ev.location ? `📍 ${ev.location}` : '', people ? `für ${people}` : ''].filter(Boolean).join(' · ')],
+      () => eventForm(state.data.events.find((x) => x.id === id), weekly ? null : ev.date)
+    );
+  } else if (kind === 'erinnerung' || kind === 'aufgabe') {
+    const t = find('tasks');
+    if (!t) return;
+    const when = isRecurring(t) ? `↻ ${rhythmText(t)}` : t.due_date ? D.formatShort(t.due_date) : 'ohne Datum';
+    const people = namesOf(peopleOf(t));
+    confirmToast(
+      `${kind === 'erinnerung' ? 'Erinnerung' : 'Aufgabe'} ${verb}`,
+      [[t.title, when, t.due_time ? `${D.hm(t.due_time)} Uhr` : ''].filter(Boolean).join(' · '), people ? `für ${people}` : kind === 'erinnerung' ? 'für alle' : ''],
+      () => {
+        const x = state.data.tasks.find((y) => y.id === id);
+        if (x) (isReminder(x) ? reminderForm : taskForm)(x);
+      }
+    );
+  } else if (kind === 'rezept') {
+    const r = find('recipes');
+    if (!r) return;
+    const n = r.ingredients?.length || 0;
+    confirmToast(
+      `Gericht ${verb}`,
+      [`${recipeEmoji(r)} ${r.title}`, [recipeCategory(r.category).label, `${n} ${n === 1 ? 'Zutat' : 'Zutaten'}`, r.minutes ? `${r.minutes} Min.` : ''].filter(Boolean).join(' · ')],
+      () => recipeForm(state.data.recipes.find((x) => x.id === id))
+    );
+  } else if (kind === 'geburtstag') {
+    const b = find('birthdays');
+    if (!b) return;
+    const next = nextBirthday(b);
+    const age = ageOn(b, next);
+    confirmToast(
+      `Geburtstag ${verb}`,
+      [`🎂 ${b.name} · ${b.day}. ${MONTHS[b.month - 1]}${b.year ? ` ${b.year}` : ''}`, `nächster: ${D.formatShort(next)}${age ? ` · wird ${age}` : ''}`],
+      () => birthdayForm(state.data.birthdays.find((x) => x.id === id))
+    );
+  } else if (kind === 'person') {
+    const m = find('members');
+    if (!m) return;
+    confirmToast(`Person ${verb}`, [`${m.name} · ${ROLES[m.role] || ''}`], () => memberForm(member(id)));
+  }
+}
+
+// Speichern + Bestätigung zeigen (save() vergibt die id sofort)
+function saveConfirm(table, row, kind, isNew) {
+  const p = save(table, row);
+  confirmSaved(kind, row.id, isNew);
+  return p;
 }
 
 // Löschen mit "Rückgängig": vorher alles merken, was mit verschwindet
@@ -1068,7 +1178,7 @@ function recipeForm(r) {
     inner,
     (f) => {
       const num = (k) => (f.get(k) ? Number(f.get(k)) : null);
-      const saved = save('recipes', {
+      const saved = saveConfirm('recipes', {
         id: r.id,
         title: f.get('title').trim(),
         emoji: f.get('emoji').trim() || null,
@@ -1079,7 +1189,7 @@ function recipeForm(r) {
         steps: f.get('steps').trim() || null,
         favorite: f.get('favorite') === 'on',
         own: r.own ?? true,
-      });
+      }, 'rezept', isNew);
       closeSheet();
       // Gerade angelegtes/geändertes Gericht direkt anzeigen
       saved.then((row) => row && recipeDetail(state.data.recipes.find((x) => x.id === row.id) || row));
@@ -1960,7 +2070,7 @@ function eventForm(ev, day) {
       }
       if (repeat === 'weekly') endDate = f.get('series_end') || null;
       const allDayChecked = f.get('all_day') === 'on';
-      save('events', {
+      saveConfirm('events', {
         id: ev.id,
         title: f.get('title').trim(),
         member_ids: readPeople(),
@@ -1973,7 +2083,7 @@ function eventForm(ev, day) {
         end_time: allDayChecked ? null : f.get('end_time') || null,
         location: f.get('location').trim() || null,
         notes: f.get('notes').trim() || null,
-      });
+      }, 'termin', isNew);
       closeSheet();
     },
     extra
@@ -2069,7 +2179,7 @@ function reminderForm(t, day) {
       const repeat = f.get('repeat');
       const rh = repeat === 'weekly' ? readRhythm(f) : noRhythm;
       if (rh.error) return toast(rh.error);
-      save('tasks', {
+      saveConfirm('tasks', {
         id: t.id,
         ...(isNew ? { created_by: state.me || null } : {}),
         ...rh,
@@ -2082,7 +2192,7 @@ function reminderForm(t, day) {
         notes: f.get('notes').trim() || null,
         done_at: repeat === 'once' ? t.done_at ?? null : null,
         done_by: repeat === 'once' ? t.done_by ?? null : null,
-      });
+      }, 'erinnerung', isNew);
       closeSheet();
     },
     extra
@@ -2118,7 +2228,7 @@ function taskForm(t, day) {
       const rh = repeat === 'weekly' ? readRhythm(f) : noRhythm;
       if (rh.error) return toast(rh.error);
       const people = readPeople();
-      save('tasks', {
+      saveConfirm('tasks', {
         id: t.id,
         ...rh,
         kind: 'aufgabe',
@@ -2128,7 +2238,7 @@ function taskForm(t, day) {
         due_date: repeat === 'date' ? f.get('due_date') || state.date : null,
         notes: f.get('notes').trim() || null,
         done_at: repeat === 'weekly' ? null : t.done_at ?? null,
-      });
+      }, 'aufgabe', isNew);
       closeSheet();
     },
     extra
@@ -2208,7 +2318,7 @@ function birthdayForm(b) {
       const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
       if (!day || day > maxDay) return toast(`Den ${day || '?'}. ${MONTHS[month - 1]} gibt es nicht.`);
       if (year && month === 2 && day === 29 && !isLeap(year)) return toast(`${year} war kein Schaltjahr.`);
-      save('birthdays', { id: b.id, name: f.get('name').trim(), day, month, year, notes: f.get('notes').trim() || null });
+      saveConfirm('birthdays', { id: b.id, name: f.get('name').trim(), day, month, year, notes: f.get('notes').trim() || null }, 'geburtstag', isNew);
       closeSheet();
     },
     extra
@@ -2248,7 +2358,7 @@ function memberForm(m) {
       };
       // Bild nur mitschicken, wenn es geändert wurde
       if ($('#avatar-value').dataset.changed) row.avatar = f.get('avatar') || null;
-      save('members', row);
+      saveConfirm('members', row, 'person', isNew);
       closeSheet();
     },
     extra
