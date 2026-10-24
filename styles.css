@@ -3633,3 +3633,117 @@ details[open] > summary .sum-ic {
   max-width: 54px;
   row-gap: 0;
 }
+
+/* ================= Liste: Zeilen mit fester Zeitspalte, Personen rechts ================= */
+.week-day .body {
+  gap: 4px;
+}
+.lrow {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: start;
+  line-height: 1.35;
+}
+.lr-time {
+  padding-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.lr-title {
+  overflow-wrap: anywhere;
+}
+.lr-title > .ic {
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  color: var(--muted);
+}
+.lrow.rem .lr-title,
+.lrow.tasks .lr-title {
+  font-size: 15px;
+}
+.lrow.tasks .lr-title {
+  color: var(--muted);
+}
+.lrow.hol .lr-title {
+  color: var(--red);
+  font-weight: 600;
+}
+.lrow.off {
+  opacity: 0.6;
+}
+.lrow.off .lr-time,
+.lrow.off .lr-title {
+  text-decoration: line-through;
+}
+.av-stack {
+  display: flex;
+  align-items: center;
+  padding-top: 1px;
+}
+.av.xs {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  box-shadow: 0 0 0 2px var(--card);
+}
+.av-stack .av + .av {
+  margin-left: -7px;
+}
+.av-more {
+  --c: var(--muted);
+  font-size: 10px;
+}
+.week-day.today .av.xs {
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+/* Personenfilter oben in der Liste */
+.list-filter {
+  display: flex;
+  gap: 4px;
+  margin: 0 -6px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.list-filter::-webkit-scrollbar {
+  display: none;
+}
+.lf-person {
+  flex: 1 0 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  border-radius: 12px;
+  text-align: center;
+}
+.lf-person span {
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lf-person .av {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  transition: box-shadow 0.15s, opacity 0.15s;
+}
+.lf-person.on {
+  color: var(--accent);
+}
+.lf-person.on .av {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+.lf-person.dim .av,
+.lf-person.dim span {
+  opacity: 0.4;
+}

@@ -29,6 +29,7 @@ const state = {
   listFrom: D.todayKey(),
   listTo: D.addDays(D.todayKey(), 20),
   listTop: null, // oberster sichtbarer Tag (für Titel und Pfeile)
+  listPerson: null, // Personenfilter der Liste (null = alle)
   listScrollTo: null, // nach dem Zeichnen dorthin scrollen
   data: null,
   session: null,
@@ -1012,12 +1013,35 @@ function listWeekHead(ws, from) {
     ${ferien.map((f) => `<p class="week-ferien">🏖️ ${esc(f.name)} <span class="muted">${D.formatShort(f.start)} – ${D.formatShort(f.end)}</span></p>`).join('')}`;
 }
 
+// Kleine Fotos der Beteiligten, rechtsbündig (max. 3, dann "+n")
+function avatarStack(ids) {
+  if (!ids.length) return '';
+  const shown = ids.slice(0, 3).map((id) => avatar(member(id), 'xs')).join('');
+  const more = ids.length > 3 ? `<span class="av av-initial xs av-more">+${ids.length - 3}</span>` : '';
+  const names = ids.map((id) => member(id)?.name).filter(Boolean).join(', ');
+  return `<span class="av-stack" title="${esc(names)}" aria-label="${esc(names)}">${shown}${more}</span>`;
+}
+
+// Personenfilter der Liste: Einträge ohne Personen gelten für alle und bleiben sichtbar
+const listPersonOk = (ids) => !state.listPerson || !ids.length || ids.includes(state.listPerson);
+
+// Eine Zeile: Zeit links (feste Spalte), Titel in der Mitte, Personen rechts
+const lrow = (time, title, ids = [], cls = '') =>
+  `<div class="lrow ${cls}"><span class="lr-time">${time}</span><span class="lr-title">${title}</span>${avatarStack(ids)}</div>`;
+
+// Nur der Beginn (Ende steht beim Öffnen); mehrtägig: "ab"/"bis", sonst leer
+function startLabel(o) {
+  if (o.multi) return o.time === 'Ganztägig' ? '' : esc(o.time);
+  if (o.ev.all_day) return 'ganzt.';
+  return esc(D.hm(o.ev.start_time) || '');
+}
+
 function listDay(day) {
   const today = D.todayKey();
-  const events = eventsOn(day);
-  const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue);
+  const events = eventsOn(day).filter((o) => listPersonOk(eventPeople(o.ev)));
+  const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue && (!state.listPerson || peopleOf(x.t).includes(state.listPerson)));
   const open = tasks.filter((x) => !x.done).length;
-  const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue);
+  const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && listPersonOk(peopleOf(x.t)));
   const bdays = birthdaysOn(day);
   const holiday = holidayOn(day, state.land);
   const meal = state.data.meals.find((m) => m.date === day);
@@ -1031,30 +1055,44 @@ function listDay(day) {
         ${day === today ? '<em class="today-tag">Heute</em>' : ''}
       </div>
       <div class="body">
-        ${holiday ? `<div class="wline hol">🎉 ${esc(holiday.name)}</div>` : ''}
-        ${bdays.map((b) => `<div class="wline bd">${birthdayHtml(b, day)}</div>`).join('')}
+        ${holiday ? lrow('', `🎉 ${esc(holiday.name)}`, [], 'hol') : ''}
+        ${bdays.map((b) => lrow('', birthdayHtml(b, day), [], 'bd')).join('')}
         ${events
-          .map(
-            (o) => `<div class="wline ${o.cancelled ? 'ev-off' : ''}">
-              ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted wl-time">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
-              <span class="wl-title">${esc(o.ev.title)}</span>${dayPill(o)}${changedTag(o)} ${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}
-            </div>`
+          .map((o) =>
+            lrow(
+              startLabel(o),
+              `${esc(o.ev.title)}${o.cancelled ? '' : dayPill(o)}${o.cancelled ? '' : changedTag(o)}`,
+              eventPeople(o.ev),
+              o.cancelled ? 'off' : ''
+            )
           )
           .join('')}
         ${reminders
-          .map(
-            (x) => `<div class="wline small with-ic ${x.done ? 'cancelled' : ''}">${ic('bell')}${x.t.due_time ? `${D.hm(x.t.due_time)} ` : ''}${esc(x.t.title)} ${chips(peopleOf(x.t))}</div>`
-          )
+          .map((x) => lrow(x.t.due_time ? D.hm(x.t.due_time) : '', `${ic('bell')}${esc(x.t.title)}`, peopleOf(x.t), `rem ${x.done ? 'off' : ''}`))
           .join('')}
-        ${open ? `<div class="wline small muted with-ic">${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
+        ${open ? lrow('', `${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}`, [], 'tasks') : ''}
       </div>
       </button>
       ${mealField(meal, day, 'Essen', 'next', 'week-meal')}
     </div>`;
 }
 
+// Fotoleiste zum Filtern nach Person (nur in der Liste)
+function listPersonFilter() {
+  const ms = [...members()].sort((a, b) => (a.role === 'kind') - (b.role === 'kind'));
+  const sel = state.listPerson;
+  return `<div class="list-filter" role="group" aria-label="Nach Person filtern">
+    ${ms
+      .map(
+        (m) => `<button class="lf-person ${sel === m.id ? 'on' : ''} ${sel && sel !== m.id ? 'dim' : ''}" data-action="list-person" data-id="${m.id}" aria-pressed="${sel === m.id}" aria-label="Nur ${esc(m.name)}">
+          ${avatar(m)}<span>${esc(m.name)}</span></button>`
+      )
+      .join('')}
+  </div>`;
+}
+
 function viewWoche() {
-  const out = [`<button class="btn ghost wide list-earlier" data-action="list-earlier">${ic('down', 'flip')}Frühere Tage anzeigen</button>`];
+  const out = [listPersonFilter(), `<button class="btn ghost wide list-earlier" data-action="list-earlier">${ic('down', 'flip')}Frühere Tage anzeigen</button>`];
   for (let day = state.listFrom; day <= state.listTo; day = D.addDays(day, 1)) {
     if (day === state.listFrom || D.isoWeekday(day) === 1) out.push(listWeekHead(D.startOfWeek(day), day));
     out.push(listDay(day));
@@ -1077,7 +1115,8 @@ function listTitle(top) {
   const today = D.todayKey();
   const ws = D.startOfWeek(top || state.listFrom);
   const current = ws === D.startOfWeek(today);
-  return `<span class="rel">KW ${D.isoWeekNumber(ws)}</span><span class="date">${current && state.listFrom === today ? 'Ab heute' : esc(weekRange(ws))}</span>`;
+  const who = state.listPerson && member(state.listPerson);
+  return `<span class="rel">KW ${D.isoWeekNumber(ws)}${who ? ` · nur ${esc(who.name)}` : ''}</span><span class="date">${current && state.listFrom === today ? 'Ab heute' : esc(weekRange(ws))}</span>`;
 }
 
 function updateListHeader() {
@@ -3000,6 +3039,11 @@ const actions = {
       p.focus();
       p.click();
     }
+  },
+  'list-person': (d) => {
+    state.listPerson = state.listPerson === d.id ? null : d.id;
+    render();
+    updateListHeader();
   },
   'list-earlier': () => {
     // eine Woche Vergangenheit dazu, ohne dass die Liste springt
