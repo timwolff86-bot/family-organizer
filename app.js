@@ -3,6 +3,7 @@ import * as D from './dates.js';
 import { CATEGORIES, QUICK_DEFAULTS, categoryOf, classify, normalize, seedProducts } from './products.js';
 import { RECIPE_CATEGORIES, SEED_RECIPES, STAPLES, recipeCategory } from './recipes.js';
 import { STATES, holidayOn, refreshSchoolHolidays, schoolHolidayOn } from './holidays.js';
+import { combineFilters, parseQuery, scoreFields } from './search.js';
 
 /* ================= Zustand ================= */
 
@@ -1394,7 +1395,203 @@ function viewMehr() {
     </section>`;
 }
 
+/* ================= Suche ================= */
+
+const SEARCH_KINDS = [
+  ['alle', 'Alles'],
+  ['termin', 'Termine'],
+  ['erinnerung', 'Erinnerungen'],
+  ['aufgabe', 'Aufgaben'],
+  ['rezept', 'Rezepte'],
+  ['geburtstag', 'Geburtstage'],
+];
+
+function openSearch({ focus = true } = {}) {
+  state.search ||= { q: '', kind: 'alle' };
+  const kids = members().filter((m) => m.role === 'kind');
+  const ex = [`Zahnarzt`, `${(kids[0] || members()[0])?.name || 'Mia'} Klavier`, 'Arzt Dezember', 'nächste Woche'];
+  openPanel(
+    'Suchen',
+    `
+    <div class="search-box">
+      <input type="search" id="search-q" value="${esc(state.search.q)}" placeholder="Termin, Person, Monat …" autocomplete="off" enterkeyhint="search" />
+    </div>
+    <div class="chip-row search-kinds">
+      ${SEARCH_KINDS.map(([k, l]) => `<button type="button" class="filter-chip ${state.search.kind === k ? 'on' : ''}" data-action="search-kind" data-kind="${k}">${l}</button>`).join('')}
+    </div>
+    <div id="search-results" data-examples="${esc(JSON.stringify(ex))}"></div>`
+  );
+  renderSearchResults();
+  if (focus) $('#search-q').focus(); // direkt im Tipp, damit die Tastatur auch auf dem iPhone aufgeht
+}
+
+// Nächster bzw. letzter Tag eines Termins (ohne ausgefallene), passend zum Zeitfilter
+function eventDays(ev, range) {
+  const today = D.todayKey();
+  const weekly = ev.weekdays?.length > 0;
+  const cancelled = (day) => state.data.event_occurrences.some((o) => o.event_id === ev.id && o.date === day && o.cancelled);
+  if (!weekly) {
+    if (!ev.date) return null;
+    const end = ev.end_date && ev.end_date > ev.date ? ev.end_date : ev.date;
+    if (range) {
+      let d = ev.date < range.from ? range.from : ev.date;
+      for (let i = 0; d <= end && d <= range.to && i < 400; i++, d = D.addDays(d, 1)) if (range.test(d)) return { day: d, upcoming: end >= today };
+      return null;
+    }
+    return { day: end >= today && ev.date < today ? today : ev.date, upcoming: end >= today };
+  }
+  const hits = (d) => ev.weekdays.includes(D.isoWeekday(d)) && (!ev.end_date || ev.end_date >= d) && !cancelled(d);
+  const start = range ? (range.from > today ? range.from : today) : today;
+  const stop = range ? range.to : D.addDays(today, 60);
+  for (let d = start; d <= stop; d = D.addDays(d, 1)) if (hits(d) && (!range || range.test(d))) return { day: d, upcoming: true };
+  // Sonst: letzter Termin in der Vergangenheit
+  const back = range ? (range.to < today ? range.to : D.addDays(today, -1)) : D.addDays(ev.end_date && ev.end_date < today ? ev.end_date : today, -1);
+  const backStop = range ? range.from : D.addDays(back, -14);
+  for (let d = back; d >= backStop; d = D.addDays(d, -1)) if (hits(d) && (!range || range.test(d))) return { day: d, upcoming: false };
+  return null;
+}
+
+// Nächster/letzter Tag einer Erinnerung oder Aufgabe
+function taskDays(t, range) {
+  const today = D.todayKey();
+  if (!isRecurring(t)) {
+    if (!t.due_date) return range ? null : { day: null, upcoming: !t.done_at };
+    if (range && !range.test(t.due_date)) return null;
+    return { day: t.due_date, upcoming: t.due_date >= today || !t.done_at };
+  }
+  const start = range ? (range.from > today ? range.from : today) : today;
+  const stop = range ? range.to : D.addDays(today, 400);
+  for (let d = start; d <= stop; d = D.addDays(d, 1)) if (occursOn(t, d) && (!range || range.test(d))) return { day: d, upcoming: true };
+  if (range) for (let d = range.to < today ? range.to : D.addDays(today, -1); d >= range.from; d = D.addDays(d, -1)) if (occursOn(t, d) && range.test(d)) return { day: d, upcoming: false };
+  return null;
+}
+
+function searchItems() {
+  const { q, kind } = state.search;
+  const { terms, people, filters } = parseQuery(q, members());
+  const range = combineFilters(filters);
+  const want = (k) => kind === 'alle' || kind === k;
+  const personOk = (ids) => !people.length || people.every((id) => ids.includes(id));
+  const out = [];
+
+  if (want('termin')) {
+    for (const ev of state.data.events) {
+      if (!personOk(eventPeople(ev))) continue;
+      const score = scoreFields(terms, [{ text: ev.title, weight: 1 }, { text: ev.location, weight: 0.8 }, { text: ev.notes, weight: 0.6 }]);
+      if (!score) continue;
+      const when = eventDays(ev, range);
+      if (!when) continue;
+      const weekly = ev.weekdays?.length > 0;
+      const multi = !weekly && ev.end_date && ev.end_date > ev.date;
+      const time = D.hm(ev.start_time);
+      out.push({
+        kind: 'termin', score, ...when, title: ev.title, people: eventPeople(ev),
+        sub: [
+          weekly ? `↻ ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}` : '',
+          multi ? `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}` : '',
+          time ? `${time}${ev.end_time ? `–${D.hm(ev.end_time)}` : ''}` : ev.all_day ? 'Ganztägig' : '',
+          ev.location ? `📍 ${ev.location}` : '',
+        ].filter(Boolean).join(' · '),
+        attrs: `data-action="search-open" data-kind="termin" data-id="${ev.id}" data-day="${when.day}"`,
+      });
+    }
+  }
+  for (const k of ['erinnerung', 'aufgabe']) {
+    if (!want(k)) continue;
+    for (const t of state.data.tasks) {
+      if ((t.kind || 'aufgabe') !== k) continue;
+      if (k === 'erinnerung' && !canSeeReminder(t)) continue;
+      if (!personOk(peopleOf(t))) continue;
+      const score = scoreFields(terms, [{ text: t.title, weight: 1 }, { text: t.notes, weight: 0.6 }]);
+      if (!score) continue;
+      const when = taskDays(t, range);
+      if (!when) continue;
+      out.push({
+        kind: k, score, ...when, title: t.title, people: peopleOf(t), done: !isRecurring(t) && !!t.done_at,
+        sub: [isRecurring(t) ? `↻ ${rhythmText(t)}` : '', t.due_time ? `🕑 ${D.hm(t.due_time)}` : '', !when.day ? 'ohne Datum' : ''].filter(Boolean).join(' · '),
+        attrs: `data-action="search-open" data-kind="task" data-id="${t.id}"`,
+      });
+    }
+  }
+  if (want('geburtstag') && !people.length) {
+    for (const b of state.data.birthdays || []) {
+      const score = scoreFields(terms.filter((t) => !['geburtstag', 'geburtstage'].includes(t)), [{ text: b.name, weight: 1 }]);
+      if (!score && !(kind === 'geburtstag' && !terms.length)) continue;
+      let day = nextBirthday(b);
+      if (range) {
+        const y = Number(D.todayKey().slice(0, 4));
+        day = [y, y + 1, y - 1].map((yy) => birthdayIn(b, yy)).find((d) => d >= range.from && d <= range.to && range.test(d));
+        if (!day) continue;
+      }
+      const age = ageOn(b, day);
+      out.push({
+        kind: 'geburtstag', score: score || 1, day, upcoming: day >= D.todayKey(), title: b.name, people: [],
+        sub: `🎂 Geburtstag${age ? ` (${age})` : ''}`,
+        attrs: `data-action="search-open" data-kind="geburtstag" data-id="${b.id}"`,
+      });
+    }
+  }
+  const recipes = [];
+  if (want('rezept') && !range && !people.length && (terms.length || kind === 'rezept')) {
+    for (const r of state.data.recipes || []) {
+      const score = scoreFields(terms, [{ text: r.title, weight: 1 }, { text: (r.ingredients || []).join(' '), weight: 0.5 }]);
+      if (score) recipes.push({ r, score });
+    }
+    recipes.sort((a, b) => b.score - a.score || a.r.title.localeCompare(b.r.title));
+  }
+  return { items: out, recipes, labels: [...people.map((id) => member(id)?.name), ...(range?.labels || [])].filter(Boolean), empty: !terms.length && !people.length && !range };
+}
+
+const SEARCH_ICON = { termin: '📅', erinnerung: '🔔', aufgabe: '☑️', geburtstag: '🎂' };
+
+function searchRow(x) {
+  const date = x.day
+    ? `<span class="sr-wd">${D.WD_SHORT[D.isoWeekday(x.day) - 1]}</span><span class="sr-d">${D.fromKey(x.day).getDate()}.${D.fromKey(x.day).getMonth() + 1}.</span>${x.day.slice(0, 4) !== D.todayKey().slice(0, 4) ? `<span class="sr-y">${x.day.slice(0, 4)}</span>` : ''}`
+    : '<span class="sr-wd">–</span>';
+  return `
+    <li class="sr ${x.done ? 'done' : ''}">
+      <div class="sr-date ${x.day === D.todayKey() ? 'today' : ''}">${date}</div>
+      <button class="sr-main" ${x.attrs}>
+        <span class="sr-title">${SEARCH_ICON[x.kind]} ${esc(x.title)}${x.done ? ' <span class="muted small">✓</span>' : ''}</span>
+        ${x.sub || x.people.length ? `<span class="meta">${x.sub ? `<span class="muted small">${esc(x.sub)}</span>` : ''}${chips(x.people)}</span>` : ''}
+      </button>
+      ${x.day ? `<button class="sr-go" data-action="search-goto" data-day="${x.day}" aria-label="Tag öffnen">›</button>` : ''}
+    </li>`;
+}
+
+function renderSearchResults() {
+  const box = $('#search-results');
+  if (!box || !state.data) return;
+  const { items, recipes, labels, empty } = searchItems();
+  if (empty && state.search.kind !== 'geburtstag' && state.search.kind !== 'rezept') {
+    const ex = JSON.parse(box.dataset.examples || '[]');
+    box.innerHTML = `
+      <p class="muted search-hint">Findet auch Wortteile und Tippfehler. Personen und Zeiträume lassen sich dazuschreiben, z. B.:</p>
+      <div class="chip-row wrap">${ex.map((e) => `<button type="button" class="filter-chip" data-action="search-example" data-q="${esc(e)}">${esc(e)}</button>`).join('')}</div>`;
+    return;
+  }
+  const LIMIT = 40;
+  const up = items.filter((x) => x.upcoming).sort((a, b) => (a.day || '9999').localeCompare(b.day || '9999') || b.score - a.score);
+  const past = items.filter((x) => !x.upcoming).sort((a, b) => (b.day || '').localeCompare(a.day || '') || b.score - a.score);
+  const section = (title, list) =>
+    list.length
+      ? `<h3 class="sr-head">${title} <span class="muted small">${list.length}</span></h3>
+         <ul class="card list sr-list">${list.slice(0, LIMIT).map(searchRow).join('')}</ul>
+         ${list.length > LIMIT ? `<p class="muted small center">… und ${list.length - LIMIT} weitere – Suche genauer machen</p>` : ''}`
+      : '';
+  const filterLine = labels.length ? `<p class="sr-filter">Gefiltert: ${labels.map((l) => `<span class="tag">${esc(l)}</span>`).join(' ')}</p>` : '';
+  const recipeBlock = recipes.length
+    ? `<h3 class="sr-head">Rezepte <span class="muted small">${recipes.length}</span></h3>
+       <ul class="card list recipes">${recipes.slice(0, state.search.kind === 'rezept' ? 60 : 5).map(({ r }) => recipeRow(r, 'search-recipe')).join('')}</ul>`
+    : '';
+  const html = filterLine + section('Demnächst', up) + section('Vergangen', past) + recipeBlock;
+  box.innerHTML = html.replace(filterLine, '') ? html : `${filterLine}<p class="empty">Nichts gefunden.</p>`;
+}
+
 /* ================= Rahmen ================= */
+
+const searchButton = () =>
+  '<button class="icon-btn" data-action="search" aria-label="Suchen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg></button>';
 
 function header() {
   if (state.view === 'heute') {
@@ -1406,7 +1603,10 @@ function header() {
       <header class="top home">
         <div class="home-row">
           <span class="greet">${hello}${me ? `, ${esc(me.name)}` : ''}</span>
-          ${isToday ? '' : '<button class="pill" data-action="goto-today">Heute</button>'}
+          <span class="home-actions">
+            ${isToday ? '' : '<button class="pill" data-action="goto-today">Heute</button>'}
+            ${searchButton()}
+          </span>
         </div>
         <button class="date-big" data-action="pick-date" aria-label="Datum wählen">
           ${isToday ? '' : `<span class="rel">${D.relativeLabel(state.date)}</span>`}
@@ -1432,9 +1632,13 @@ function header() {
           <button class="title-btn" data-action="cal-today" aria-label="Zu heute">${title}</button>
           <button class="nav" data-action="cal-step" data-dir="1" aria-label="Weiter">›</button>
         </div>
-        <div class="seg wide cal-switch">
-          <button class="${month ? '' : 'on'}" data-action="cal-mode" data-mode="woche">Woche</button>
-          <button class="${month ? 'on' : ''}" data-action="cal-mode" data-mode="monat">Monat</button>
+        <div class="cal-switch-row">
+          <span></span>
+          <div class="seg wide cal-switch">
+            <button class="${month ? '' : 'on'}" data-action="cal-mode" data-mode="woche">Woche</button>
+            <button class="${month ? 'on' : ''}" data-action="cal-mode" data-mode="monat">Monat</button>
+          </div>
+          ${searchButton()}
         </div>
       </header>`;
   }
@@ -1547,6 +1751,7 @@ function render() {
     ${['heute', 'woche', 'einkauf', 'kochbuch', 'person', 'geburtstage'].includes(state.view) ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
     ${tabbar()}`;
   window.scrollTo(0, scroll);
+  renderSearchResults(); // offene Suche aktuell halten
 }
 
 function loginScreen() {
@@ -1606,6 +1811,11 @@ function closeSheet() {
   document.body.classList.remove('sheet-open');
   sheetSubmit = null;
   render();
+  // Eintrag wurde aus der Suche geöffnet → zurück zu den Suchergebnissen
+  if (state.searchBack) {
+    state.searchBack = false;
+    openSearch({ focus: false });
+  }
 }
 
 const memberOptions = (selected, { filter = () => true, empty = '– niemand –' } = {}) =>
@@ -2206,6 +2416,35 @@ const actions = {
     addChooser();
   },
   'close-sheet': () => closeSheet(),
+  search: () => openSearch(),
+  'search-kind': (d) => {
+    state.search.kind = d.kind;
+    document.querySelectorAll('.search-kinds .filter-chip').forEach((b) => b.classList.toggle('on', b.dataset.kind === d.kind));
+    renderSearchResults();
+  },
+  'search-example': (d) => {
+    state.search.q = d.q;
+    $('#search-q').value = d.q;
+    renderSearchResults();
+  },
+  'search-open': (d) => {
+    state.searchBack = true;
+    if (d.kind === 'termin') eventForm(state.data.events.find((e) => e.id === d.id), d.day);
+    else if (d.kind === 'task') actions['edit-task'](d);
+    else if (d.kind === 'geburtstag') actions['edit-birthday'](d);
+  },
+  'search-recipe': (d) => {
+    state.searchBack = true;
+    actions['open-recipe'](d);
+  },
+  'search-goto': (d) => {
+    state.searchBack = false;
+    closeSheet();
+    state.view = 'heute';
+    state.date = d.day;
+    window.scrollTo(0, 0);
+    render();
+  },
   'toggle-cancel': (d) => {
     const o = eventsOn(d.day).find((x) => x.ev.id === d.id);
     if (o) setOccurrence(o, { cancelled: !o.cancelled });
@@ -2423,6 +2662,11 @@ document.addEventListener('change', async (e) => {
 // Beim Tippen im Einkauf anzeigen, in welche Kategorie der Artikel kommt
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'search-q') {
+    state.search.q = el.value;
+    renderSearchResults();
+    return;
+  }
   if (el.id === 'recipe-search') {
     const q = el.value.trim().toLowerCase();
     const root = el.closest('.sheet') || $('#main');

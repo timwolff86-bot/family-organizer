@@ -16,6 +16,10 @@ Dazu gibt es eine **Wochenansicht** (inkl. Essensplanung und „Zutaten der Woch
 Supermarkt-Kategorien (Produktkatalog in der Datenbank, lernt Korrekturen dazu) und unter **Mehr** die
 Verwaltung von Familie (mit Profilbildern), Terminen, Erinnerungen und Aufgaben.
 
+**Suche** (Lupe oben in Heute und Kalender): findet Termine, Erinnerungen, Aufgaben, Rezepte und
+Geburtstage – auch mit Tippfehlern und Wortteilen, mit Personen und Zeiträumen
+(z. B. „Jenny Zahnarzt“, „Arzt Dezember“, „nächste Woche“).
+
 Bedienung: Wischen nach links/rechts wechselt den Tag, Tippen auf das Datum öffnet einen Kalender,
 das ＋ legt Termine, Erinnerungen oder Aufgaben an.
 
@@ -64,6 +68,7 @@ Live-Aktualisierung zwischen den Geräten. Ein Service Worker macht die App inst
 | `app.js` | Oberfläche und Logik |
 | `store.js` | Speichern/Laden (Supabase oder lokal) |
 | `dates.js` | Datums-Helfer |
+| `search.js` | Suchlogik (Tippfehler, ähnliche Begriffe, Zeiträume) |
 | `products.js` | Einkaufs-Kategorien, Start-Produktkatalog, Erkennung |
 | `recipes.js` | Kochbuch-Kategorien und Start-Rezepte |
 | `config.js` | Supabase-Zugang |
