@@ -167,3 +167,7 @@ begin
     end;
   end loop;
 end $$;
+
+-- Update 11: einzelne Termine einer Serie ändern (Ausnahmen)
+alter table public.events add column if not exists series_id uuid references public.events (id) on delete cascade;
+alter table public.events add column if not exists series_date date;

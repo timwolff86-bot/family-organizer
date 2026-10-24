@@ -104,7 +104,10 @@ const ON_DELETE = {
     ['tasks', 'done_by', 'null'],
     ['tasks', 'created_by', 'null'],
   ],
-  events: [['event_occurrences', 'event_id', 'cascade']],
+  events: [
+    ['event_occurrences', 'event_id', 'cascade'],
+    ['events', 'series_id', 'cascade'],
+  ],
   tasks: [['task_completions', 'task_id', 'cascade']],
   recipes: [['meals', 'recipe_id', 'null']],
 };

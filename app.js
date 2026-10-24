@@ -340,12 +340,16 @@ function saveConfirm(table, row, kind, isNew) {
 async function removeWithUndo(table, ids, label) {
   ids = [].concat(ids);
   const snapshot = [[table, state.data[table].filter((r) => ids.includes(r.id))]];
-  if (table === 'events') snapshot.push(['event_occurrences', state.data.event_occurrences.filter((o) => ids.includes(o.event_id))]);
+  if (table === 'events') {
+    snapshot.push(['event_occurrences', state.data.event_occurrences.filter((o) => ids.includes(o.event_id))]);
+    // Einzeländerungen einer Serie nach der Serie wiederherstellen
+    snapshot.push(['events', state.data.events.filter((e) => ids.includes(e.series_id))]);
+  }
   if (table === 'tasks') snapshot.push(['task_completions', state.data.task_completions.filter((c) => ids.includes(c.task_id))]);
   if (table === 'recipes') snapshot.push(['meals', state.data.meals.filter((m) => ids.includes(m.recipe_id))]);
   const copy = snapshot.map(([t, rows]) => [t, rows.map((r) => ({ ...r }))]);
 
-  state.data[table] = state.data[table].filter((r) => !ids.includes(r.id));
+  state.data[table] = state.data[table].filter((r) => !ids.includes(r.id) && !(table === 'events' && ids.includes(r.series_id)));
   render();
   const removal = (async () => {
     for (const id of ids) await store.remove(table, id);
@@ -427,11 +431,16 @@ async function reload() {
 
 /* ================= Termine ================= */
 
+// Tage, an denen ein Serientermin durch eine Einzeländerung ersetzt ist: "serienId|datum"
+const replacedDays = () => new Set(state.data.events.filter((e) => e.series_id).map((e) => `${e.series_id}|${e.series_date}`));
+
 function eventsOn(day) {
   const wd = D.isoWeekday(day);
   const out = [];
+  const replaced = replacedDays();
   for (const ev of state.data.events) {
     const weekly = ev.weekdays?.length > 0;
+    if (weekly && replaced.has(`${ev.id}|${day}`)) continue;
     // Einmalige Termine können über mehrere Tage gehen (date … end_date)
     const hit = weekly
       ? ev.weekdays.includes(wd) && (!ev.end_date || ev.end_date >= day)
@@ -439,7 +448,7 @@ function eventsOn(day) {
     if (!hit) continue;
     const occ = state.data.event_occurrences.find((o) => o.event_id === ev.id && o.date === day);
     const multi = !weekly && ev.end_date && ev.end_date > ev.date;
-    const o = { ev, occ, day, weekly, multi, cancelled: occ?.cancelled || false };
+    const o = { ev, occ, day, weekly, multi, cancelled: occ?.cancelled || false, changed: !!ev.series_id };
     if (multi) {
       o.dayNo = daysBetween(ev.date, day) + 1;
       o.days = daysBetween(ev.date, ev.end_date) + 1;
@@ -460,6 +469,7 @@ function multiPill(ev, text) {
   const c = member(eventPeople(ev)[0])?.color || 'var(--muted)';
   return `<span class="mpill" style="--c:${esc(c)}" title="Mehrtägiger Termin">${esc(text)}</span>`;
 }
+const changedTag = (o) => (o.changed ? '<span class="changed-tag">einmalig geändert</span>' : '');
 const dayPill = (o) => (o.multi && !o.cancelled ? multiPill(o.ev, `${o.dayNo}/${o.days}`) : '');
 
 // Personen eines Termins (ältere Einträge haben nur member_id)
@@ -510,7 +520,7 @@ function eventCard(o) {
                 ? `<div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>`
                 : ''
           }
-          <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}${dayPill(o)}</div>
+          <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}${dayPill(o)}${changedTag(o)}</div>
           <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
           ${o.multi && !o.cancelled ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
           ${ev.notes && !o.cancelled ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
@@ -835,7 +845,7 @@ function viewWoche() {
                     .map(
                       (o) => `<div class="wline ${o.cancelled ? 'ev-off' : ''}">
                         ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted wl-time">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
-                        <span class="wl-title">${esc(o.ev.title)}</span>${dayPill(o)} ${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}
+                        <span class="wl-title">${esc(o.ev.title)}</span>${dayPill(o)}${changedTag(o)} ${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}
                       </div>`
                     )
                     .join('')
@@ -960,7 +970,7 @@ function monthAgenda(day) {
         .map(
           (o) => `<button class="card ag-event ${o.cancelled ? 'cancelled' : ''}" data-action="edit-event" data-id="${o.ev.id}" data-day="${day}">
             <span class="ag-time">${esc(o.time)}</span>
-            <span class="ag-title">${esc(o.ev.title)}${dayPill(o)}</span>
+            <span class="ag-title">${esc(o.ev.title)}${dayPill(o)}${changedTag(o)}</span>
             <span class="meta">${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}</span>
           </button>`
         )
@@ -1595,7 +1605,8 @@ function eventDays(ev, range) {
     }
     return { day: end >= today && ev.date < today ? today : ev.date, upcoming: end >= today };
   }
-  const hits = (d) => ev.weekdays.includes(D.isoWeekday(d)) && (!ev.end_date || ev.end_date >= d) && !cancelled(d);
+  const replaced = replacedDays();
+  const hits = (d) => ev.weekdays.includes(D.isoWeekday(d)) && (!ev.end_date || ev.end_date >= d) && !cancelled(d) && !replaced.has(`${ev.id}|${d}`);
   const start = range ? (range.from > today ? range.from : today) : today;
   const stop = range ? range.to : D.addDays(today, 60);
   for (let d = start; d <= stop; d = D.addDays(d, 1)) if (hits(d) && (!range || range.test(d))) return { day: d, upcoming: true };
@@ -2043,11 +2054,26 @@ function eventForm(ev, day) {
   const multi = !weekly && ev.end_date && ev.end_date > ev.date;
   const allDay = !!ev.all_day;
   const o = !isNew && day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
+  // Termin einer Serie an einem bestimmten Tag: wahlweise nur diesen Tag ändern
+  const occurrence = !!(o && o.weekly);
+  const exception = !isNew && ev.series_id ? state.data.events.find((x) => x.id === ev.series_id) : null;
 
   const inner = `
+    ${
+      occurrence
+        ? `<div class="field-label">Ändern</div>
+           <div class="seg wide scope-switch">
+             <label><input type="radio" name="scope" value="one" checked /><span>Nur ${esc(D.formatShort(day))}</span></label>
+             <label><input type="radio" name="scope" value="all" /><span>Ganze Serie</span></label>
+           </div>`
+        : ''
+    }
+    ${exception ? `<p class="banner soft">Einmalig geänderter Termin der Serie „${esc(exception.title)}“ (sonst ${esc(rhythmShort(exception))}).</p>` : ''}
     <label>Was?<input name="title" value="${esc(ev.title || '')}" placeholder="z. B. Pickleball" required /></label>
     <div class="field-label">Für wen? <span class="muted small">(mehrere möglich)</span></div>
     ${peoplePicker(eventPeople(ev))}
+    ${occurrence ? `<label data-scope="one">Datum<input type="date" name="date_one" value="${esc(day)}" /></label>` : ''}
+    <div class="scope-all" ${occurrence ? 'data-scope="all" hidden' : ''} ${exception ? 'hidden' : ''}>
     ${repeatSwitch('repeat', weekly ? 'weekly' : multi ? 'multi' : 'once', [
       ['once', 'Ein Tag'],
       ['multi', 'Mehrere Tage'],
@@ -2061,6 +2087,7 @@ function eventForm(ev, day) {
     <div data-show="weekly">
       ${weekdayPicker(ev.weekdays || [D.isoWeekday(day || state.date)])}
       <label>Serie endet am (optional)<input type="date" name="series_end" value="${esc(weekly ? ev.end_date || '' : '')}" /></label>
+    </div>
     </div>
     <label class="check-line"><input type="checkbox" name="all_day" ${allDay ? 'checked' : ''}/> Ganztägig</label>
     <div class="row" data-times ${allDay ? 'hidden' : ''}>
@@ -2081,6 +2108,7 @@ function eventForm(ev, day) {
                ${o.cancelled ? `Am ${D.formatShort(day)} findet es doch statt` : `Nur am ${D.formatShort(day)}: fällt aus`}</button>`
           : ''
       }
+       ${exception ? `<button type="button" class="btn ghost wide" data-action="reset-exception" data-id="${ev.id}">Wieder wie die Serie</button>` : ''}
        <button type="button" class="btn danger wide" data-action="delete-event" data-id="${ev.id}">
          ${weekly ? 'Ganze Serie löschen' : 'Termin löschen'}</button>`;
 
@@ -2088,6 +2116,28 @@ function eventForm(ev, day) {
     isNew ? 'Neuer Termin' : 'Termin bearbeiten',
     inner,
     (f) => {
+      const allDayChecked = f.get('all_day') === 'on';
+      const common = {
+        title: f.get('title').trim(),
+        member_ids: readPeople(),
+        member_id: readPeople()[0] || null,
+        all_day: allDayChecked,
+        start_time: allDayChecked ? null : f.get('start_time') || null,
+        end_time: allDayChecked ? null : f.get('end_time') || null,
+        location: f.get('location').trim() || null,
+        notes: f.get('notes').trim() || null,
+      };
+      // Nur diesen Tag ändern: eigener Termin, der den Serientermin an diesem Tag ersetzt
+      if (occurrence && f.get('scope') === 'one') {
+        saveConfirm('events', { ...common, date: f.get('date_one') || day, weekdays: null, end_date: null, series_id: ev.id, series_date: day }, 'termin', false);
+        closeSheet();
+        return;
+      }
+      if (exception) {
+        saveConfirm('events', { ...common, id: ev.id, date: f.get('date_once') || ev.date }, 'termin', false);
+        closeSheet();
+        return;
+      }
       const repeat = f.get('repeat');
       const wds = readWeekdays($('#sheet-root form'));
       if (repeat === 'weekly' && !wds.length) return toast('Bitte mindestens einen Wochentag wählen.');
@@ -2101,26 +2151,31 @@ function eventForm(ev, day) {
         if (endDate === date) endDate = null;
       }
       if (repeat === 'weekly') endDate = f.get('series_end') || null;
-      const allDayChecked = f.get('all_day') === 'on';
       saveConfirm('events', {
+        ...common,
         id: ev.id,
-        title: f.get('title').trim(),
-        member_ids: readPeople(),
-        member_id: readPeople()[0] || null,
         date,
         weekdays: repeat === 'weekly' ? wds : null,
         end_date: endDate,
-        all_day: allDayChecked,
-        start_time: allDayChecked ? null : f.get('start_time') || null,
-        end_time: allDayChecked ? null : f.get('end_time') || null,
-        location: f.get('location').trim() || null,
-        notes: f.get('notes').trim() || null,
       }, 'termin', isNew);
       closeSheet();
     },
     extra
   );
   updateRepeatVisibility($('#sheet-root form'));
+  // Ausnahme: immer "Ein Tag", das Datumsfeld bleibt sichtbar
+  if (exception) {
+    const form = $('#sheet-root form');
+    form.querySelector('.scope-all').hidden = false;
+    form.querySelector('[data-repeat="repeat"]').hidden = true;
+  }
+}
+
+const rhythmShort = (ev) => `jeden ${[...(ev.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}`;
+
+function updateScopeVisibility(form) {
+  const one = form.querySelector('input[name="scope"]:checked')?.value === 'one';
+  form.querySelectorAll('[data-scope]').forEach((el) => (el.hidden = (el.dataset.scope === 'one') !== one));
 }
 
 
@@ -2631,9 +2686,18 @@ const actions = {
     if (o) setOccurrence(o, { cancelled: !o.cancelled });
     closeSheet();
   },
+  'reset-exception': (d) => {
+    closeSheet();
+    removeWithUndo('events', d.id, 'Wieder wie die Serie');
+  },
   'delete-event': (d) => {
     const ev = state.data.events.find((e) => e.id === d.id);
     closeSheet();
+    // Einzeländerung löschen = der Serientermin an diesem Tag fällt aus
+    if (ev?.series_id) {
+      save('event_occurrences', { event_id: ev.series_id, date: ev.series_date, cancelled: true }, 'event_id,date', { quiet: true });
+      return removeWithUndo('events', d.id, 'Termin gelöscht');
+    }
     removeWithUndo('events', d.id, ev?.weekdays?.length ? 'Serie gelöscht' : 'Termin gelöscht');
   },
   'delete-task': (d) => {
@@ -2831,6 +2895,7 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
+  if (el.name === 'scope') updateScopeVisibility(el.form);
   if (el.name === 'rhythm') updateRhythmVisibility(el.form);
   if (el.name === 'all_day') el.form.querySelector('[data-times]').hidden = el.checked;
   if (el.name === 'repeat' && el.form.querySelector('[data-time-label]')) {

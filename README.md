@@ -6,7 +6,7 @@ Beim Öffnen erscheint immer der heutige Tag mit:
 - **Erinnerungen**: To-dos für einen Tag (Uhrzeit optional), einmalig oder wiederkehrend,
   für eine oder mehrere Personen. Jede/r kann abhaken.
 - **Terminen**: einmalig oder wöchentlich (z. B. Pickleball Mi + Fr). Einzelne Termine einer Serie
-  können „ausfallen“.
+  können „ausfallen“ oder nur an diesem Tag geändert/verschoben werden.
 - **Essen** für den Tag – frei eingetragen oder aus dem **Kochbuch** gewählt, Zutaten mit einem Tipp
   auf die Einkaufsliste
 - **Aufgaben** mit Filter „Alle / Meine“
