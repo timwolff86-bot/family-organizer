@@ -3428,3 +3428,42 @@ details[open] > summary .sum-ic {
 .week-day.free .week-top {
   width: 74px;
 }
+
+/* Personenseite: Aufgaben dieser Woche */
+.week-tasks {
+  margin: 4px 0 14px;
+}
+.wt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+}
+.wt-head b {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.wt-bar {
+  height: 8px;
+  margin: 10px 0 2px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.wt-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.wt-missed {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.wt-missed .link {
+  display: inline;
+  font-weight: 600;
+}

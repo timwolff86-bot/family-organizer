@@ -639,6 +639,11 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
         const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
         out.push({ t, day, done: !!c, recurring: true });
       }
+      // Heute zusätzlich: zuletzt verpasster Termin dieser Aufgabe (bis zu 7 Tage zurück)
+      if (day === today && kind === 'aufgabe') {
+        const missed = lastMissed(t, today);
+        if (missed) out.push({ t, day: missed, done: false, recurring: true, overdue: true, missed: true });
+      }
       continue;
     }
     const stillVisible = !t.done_at || doneKey(t) === today;
@@ -659,6 +664,21 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
       a.t.title.localeCompare(b.t.title)
   );
 }
+
+// Wiederkehrende Aufgabe: letzter Tag vor heute, an dem sie dran war und nicht abgehakt wurde
+const MISSED_DAYS = 7;
+function lastMissed(t, today) {
+  const since = t.created_at ? D.toKey(new Date(t.created_at)) : null;
+  for (let i = 1; i <= MISSED_DAYS; i++) {
+    const d = D.addDays(today, -i);
+    if (since && d < since) return null;
+    if (!occursOn(t, d)) continue;
+    const done = state.data.task_completions.some((x) => x.task_id === t.id && x.date === d);
+    return done ? null : d; // nur der jeweils letzte Termin zählt
+  }
+  return null;
+}
+const missedLabel = (day) => (D.relativeLabel(day) === 'Gestern' ? 'gestern' : `${D.WD_SHORT[D.isoWeekday(day) - 1]}, ${D.formatDayMonth(day)}`);
 
 function toggleTask(taskId, day) {
   const t = state.data.tasks.find((x) => x.id === taskId);
@@ -686,7 +706,11 @@ function taskRow(x) {
   const badges = [
     isReminder(t) && state.view === 'person' ? `<span class="tag time">${ic('bell')}</span>` : '',
     t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">${ic('clock')}${D.hm(t.due_time)}</span>` : '',
-    x.overdue ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
+    x.missed
+      ? `<span class="tag red">${esc(missedLabel(x.day))} nicht erledigt</span>`
+      : x.overdue
+        ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
+        : '',
     x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : '',
   ].join('');
   return `
@@ -792,6 +816,49 @@ const PERSON_RANGES = [
   [92, '3 Monate'],
 ];
 
+// Aufgaben einer Person in dieser Woche (Montag bis heute): wie viele erledigt, was liegen blieb
+function weekTaskStats(id) {
+  const today = D.todayKey();
+  const days = [];
+  for (let d = D.startOfWeek(today); d <= today; d = D.addDays(d, 1)) days.push(d);
+  const items = [];
+  for (const t of state.data.tasks) {
+    if ((t.kind || 'aufgabe') !== 'aufgabe' || !peopleOf(t).includes(id)) continue;
+    if (isRecurring(t)) {
+      const since = t.created_at ? D.toKey(new Date(t.created_at)) : null;
+      for (const d of days) {
+        if ((since && d < since) || !occursOn(t, d)) continue;
+        items.push({ t, day: d, done: state.data.task_completions.some((x) => x.task_id === t.id && x.date === d) });
+      }
+    } else if (t.due_date && t.due_date >= days[0] && t.due_date <= today) {
+      items.push({ t, day: t.due_date, done: !!t.done_at });
+    }
+  }
+  const done = items.filter((x) => x.done).length;
+  const missed = items.filter((x) => !x.done && x.day < today).sort((a, b) => a.day.localeCompare(b.day));
+  return { total: items.length, done, missed };
+}
+
+function weekTaskCard(id) {
+  const { total, done, missed } = weekTaskStats(id);
+  if (!total) return '';
+  const pct = Math.round((done / total) * 100);
+  return `
+    <div class="card pad week-tasks">
+      <div class="wt-head"><span>Aufgaben diese Woche</span><b>${done} von ${total} erledigt</b></div>
+      <div class="wt-bar" role="img" aria-label="${pct} Prozent erledigt"><i style="width:${pct}%"></i></div>
+      ${
+        missed.length
+          ? `<p class="wt-missed"><span class="muted">Nicht erledigt:</span> ${missed
+              .map((x) => `<button class="link" data-action="edit-task" data-id="${x.t.id}">${esc(x.t.title)}</button> <span class="muted">(${D.WD_SHORT[D.isoWeekday(x.day) - 1]})</span>`)
+              .join(', ')}</p>`
+          : done === total
+            ? '<p class="wt-missed muted">Alles erledigt – super!</p>'
+            : ''
+      }
+    </div>`;
+}
+
 function viewPerson() {
   const id = state.personId;
   const today = D.todayKey();
@@ -815,11 +882,11 @@ function viewPerson() {
     if (long) {
       // Regelmäßiges (ohne Ausfälle) wandert in den Block "Regelmäßig"
       for (const o of events) if (o.weekly && !o.cancelled) seriesEvents.set(o.ev.id, o.ev);
-      for (const x of [...reminders, ...tasks]) if (x.recurring) seriesTasks.set(x.t.id, x.t);
+      for (const x of [...reminders, ...tasks]) if (x.recurring && !x.missed) seriesTasks.set(x.t.id, x.t);
       // Mehrtägiges nur am ersten Tag (bzw. heute, wenn es schon läuft)
       events = events.filter((o) => (!o.weekly || o.cancelled) && (!o.multi || o.day === o.ev.date || i === 0));
       reminders = reminders.filter((x) => !x.recurring);
-      tasks = tasks.filter((x) => !x.recurring);
+      tasks = tasks.filter((x) => !x.recurring || x.missed);
     }
     const items = [...(show('reminders') ? reminders : []), ...(show('tasks') ? tasks : [])];
     const evs = show('events') ? events : [];
@@ -852,6 +919,7 @@ function viewPerson() {
   ];
   const what = { events: 'Termine', reminders: 'Erinnerungen', tasks: 'Aufgaben' }[f] || 'Einträge';
   return `
+    ${weekTaskCard(id)}
     <div class="person-stats">
       ${tile('events', counts.events, 'Termine')}
       ${tile('reminders', counts.reminders, 'Erinnerungen')}
