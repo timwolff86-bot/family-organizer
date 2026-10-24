@@ -2870,13 +2870,18 @@ const actions = {
       toast('Gesendet – sie sollte gleich erscheinen.');
     } catch (e) {
       console.error(e);
-      toast(
+      // Möglichst genau sagen, woran es liegt
+      const msg =
         e.status === 404 && /Gerät/.test(e.message)
           ? 'Dieses Gerät ist nicht angemeldet. Bitte aus- und wieder einschalten.'
-          : e.status === 404 || /Failed to send|fetch/i.test(e.message)
-            ? 'Die Versand-Funktion ist in Supabase noch nicht eingerichtet (siehe Anleitung).'
-            : `Senden fehlgeschlagen: ${e.message}`
-      );
+          : e.status === 404
+            ? 'Versand-Funktion nicht gefunden – heißt sie in Supabase genau „push“?'
+            : e.status === 401
+              ? 'Versand-Funktion lehnt ab (401) – bitte „Verify JWT“ ausschalten.'
+              : /Failed to send|fetch/i.test(e.message)
+                ? 'Versand-Funktion nicht erreichbar – meist ist „Verify JWT“ noch an oder sie startet nicht (Logs prüfen).'
+                : `Senden fehlgeschlagen: ${e.message}${e.status ? ` (${e.status})` : ''}`;
+      toast(msg, { label: 'OK', run: () => {} });
     }
   },
   'goto-day': (d) => {
