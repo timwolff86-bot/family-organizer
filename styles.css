@@ -2874,3 +2874,9 @@ form.sheet .sheet-body {
 .wline.bd .muted {
   font-weight: 500;
 }
+
+/* Ausgeblendete Meldung darf keine Fingertipps abfangen */
+#toast:not(.show),
+#toast.confirm:not(.show) {
+  pointer-events: none;
+}
