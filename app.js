@@ -1056,7 +1056,12 @@ function listDay(day) {
       </div>
       <div class="body">
         ${holiday ? lrow('', `🎉 ${esc(holiday.name)}`, [], 'hol') : ''}
-        ${bdays.map((b) => lrow('', birthdayHtml(b, day), [], 'bd')).join('')}
+        ${bdays
+          .map((b) => {
+            const age = ageOn(b, day);
+            return lrow('', `🎂 ${esc(b.name)}${age ? ` <span class="muted">(${age})</span>` : ''}`, [], 'bd');
+          })
+          .join('')}
         ${events
           .map((o) =>
             lrow(

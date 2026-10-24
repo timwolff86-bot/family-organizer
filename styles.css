@@ -3747,3 +3747,8 @@ details[open] > summary .sum-ic {
 .lf-person.dim span {
   opacity: 0.4;
 }
+/* Geburtstag in der Liste: klein und schlicht */
+.lrow.bd .lr-title {
+  font-size: 14px;
+  font-weight: 400;
+}
