@@ -25,7 +25,11 @@ const lsSet = (k, v) => {
 const state = {
   view: 'heute', // heute | woche | einkauf | mehr
   date: D.todayKey(),
-  weekStart: D.startOfWeek(D.todayKey()),
+  // Kalender-Liste: fortlaufend ab heute; listFrom/listTo = angezeigter Zeitraum
+  listFrom: D.todayKey(),
+  listTo: D.addDays(D.todayKey(), 20),
+  listTop: null, // oberster sichtbarer Tag (für Titel und Pfeile)
+  listScrollTo: null, // nach dem Zeichnen dorthin scrollen
   data: null,
   session: null,
   me: lsGet('fo-me'),
@@ -968,57 +972,130 @@ function viewPerson() {
     }`;
 }
 
-function viewWoche() {
-  const days = Array.from({ length: 7 }, (_, i) => D.addDays(state.weekStart, i));
+// Kalender-Liste: ab heute fortlaufend, oben "Frühere Tage", unten lädt beim Scrollen nach
+const LIST_SPAN = 21;
+function listReset() {
+  state.listFrom = D.todayKey();
+  state.listTo = D.addDays(state.listFrom, LIST_SPAN - 1);
+  state.listTop = null;
+  state.listScrollTo = 'top';
+}
+
+// Zu einem Tag springen: Liste bei Bedarf erweitern, dann zur Woche scrollen
+function listGoto(day) {
   const today = D.todayKey();
-  // Ferien dieser Woche einmal oben anzeigen
-  const ferien = [...new Map(days.map((d) => schoolHolidayOn(d, state.land)).filter(Boolean).map((f) => [f.start, f])).values()];
-  return ferien
-    .map((f) => `<p class="week-ferien">🏖️ ${esc(f.name)} <span class="muted">${D.formatShort(f.start)} – ${D.formatShort(f.end)}</span></p>`)
-    .join('') + days
-    .map((day) => {
-      const events = eventsOn(day);
-      const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue);
-      const open = tasks.filter((x) => !x.done).length;
-      const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue);
-      const bdays = birthdaysOn(day);
-      const holiday = holidayOn(day, state.land);
-      const meal = state.data.meals.find((m) => m.date === day);
-      const empty = !events.length && !reminders.length && !open && !bdays.length && !holiday;
-      return `
-        <div class="card week-day ${day === today ? 'today' : ''} ${empty ? 'free' : ''} ${D.isoWeekday(day) > 5 ? 'we' : ''}">
-          <button class="week-top" data-action="goto-day" data-day="${day}" aria-label="${esc(D.formatLong(day))} öffnen">
-          <div class="wd">
-            <strong>${D.WD_SHORT[D.isoWeekday(day) - 1]}</strong>
-            <span>${D.fromKey(day).getDate()}</span>
-          </div>
-          <div class="body">
-            ${holiday ? `<div class="wline hol">🎉 ${esc(holiday.name)}</div>` : ''}
-            ${bdays.map((b) => `<div class="wline bd">${birthdayHtml(b, day)}</div>`).join('')}
-            ${
-              events.length
-                ? events
-                    .map(
-                      (o) => `<div class="wline ${o.cancelled ? 'ev-off' : ''}">
-                        ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted wl-time">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
-                        <span class="wl-title">${esc(o.ev.title)}</span>${dayPill(o)}${changedTag(o)} ${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}
-                      </div>`
-                    )
-                    .join('')
-                : ''
-            }
-            ${reminders
-              .map(
-                (x) => `<div class="wline small with-ic ${x.done ? 'cancelled' : ''}">${ic('bell')}${x.t.due_time ? `${D.hm(x.t.due_time)} ` : ''}${esc(x.t.title)} ${chips(peopleOf(x.t))}</div>`
-              )
-              .join('')}
-            ${open ? `<div class="wline small muted with-ic">${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
-          </div>
-          </button>
-          ${mealField(meal, day, 'Essen', 'next', 'week-meal')}
-        </div>`;
-    })
-    .join('');
+  const ws = D.startOfWeek(day);
+  if (ws === D.startOfWeek(today)) return listReset();
+  if (ws < state.listFrom) state.listFrom = ws;
+  if (D.addDays(ws, 13) > state.listTo) state.listTo = D.addDays(ws, 13);
+  state.listScrollTo = `lw-${ws}`;
+}
+
+const weekRange = (ws) => `${D.formatDayMonth(ws)} – ${D.formatDayMonth(D.addDays(ws, 6))}`;
+
+// Trennzeile vor jeder Woche: KW, Zeitraum, Ferien, Zutaten der kommenden Gerichte
+function listWeekHead(ws, from) {
+  const today = D.todayKey();
+  const days = Array.from({ length: 7 }, (_, i) => D.addDays(ws, i)).filter((d) => d >= from && d <= state.listTo);
+  const ids = days
+    .filter((d) => d >= today)
+    .map((d) => mealRecipe(state.data.meals.find((m) => m.date === d))?.id)
+    .filter(Boolean);
+  const ferien = [...new Map(days.map((d) => schoolHolidayOn(d, state.land)).filter(Boolean).map((f) => [f.start, f])).values()].filter(
+    (f) => from === state.listFrom || (f.start >= ws && f.start <= D.addDays(ws, 6))
+  );
+  return `
+    <div class="list-week" id="lw-${ws}" data-week="${ws}">
+      <span class="lw-title"><b>KW ${D.isoWeekNumber(ws)}</b> · ${esc(weekRange(ws))}</span>
+      ${ids.length ? `<button class="link" data-action="ingredients" data-ids="${ids.join(',')}">${ic('einkauf')}Zutaten</button>` : ''}
+    </div>
+    ${ferien.map((f) => `<p class="week-ferien">🏖️ ${esc(f.name)} <span class="muted">${D.formatShort(f.start)} – ${D.formatShort(f.end)}</span></p>`).join('')}`;
+}
+
+function listDay(day) {
+  const today = D.todayKey();
+  const events = eventsOn(day);
+  const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue);
+  const open = tasks.filter((x) => !x.done).length;
+  const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue);
+  const bdays = birthdaysOn(day);
+  const holiday = holidayOn(day, state.land);
+  const meal = state.data.meals.find((m) => m.date === day);
+  const empty = !events.length && !reminders.length && !open && !bdays.length && !holiday;
+  return `
+    <div class="card week-day ${day === today ? 'today' : ''} ${day < today ? 'past' : ''} ${empty ? 'free' : ''} ${D.isoWeekday(day) > 5 ? 'we' : ''}" data-day="${day}" id="wd-${day}">
+      <button class="week-top" data-action="goto-day" data-day="${day}" aria-label="${esc(D.formatLong(day))} öffnen">
+      <div class="wd">
+        <strong>${D.WD_SHORT[D.isoWeekday(day) - 1]}</strong>
+        <span>${D.fromKey(day).getDate()}</span>
+        ${day === today ? '<em class="today-tag">Heute</em>' : ''}
+      </div>
+      <div class="body">
+        ${holiday ? `<div class="wline hol">🎉 ${esc(holiday.name)}</div>` : ''}
+        ${bdays.map((b) => `<div class="wline bd">${birthdayHtml(b, day)}</div>`).join('')}
+        ${events
+          .map(
+            (o) => `<div class="wline ${o.cancelled ? 'ev-off' : ''}">
+              ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted wl-time">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
+              <span class="wl-title">${esc(o.ev.title)}</span>${dayPill(o)}${changedTag(o)} ${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}
+            </div>`
+          )
+          .join('')}
+        ${reminders
+          .map(
+            (x) => `<div class="wline small with-ic ${x.done ? 'cancelled' : ''}">${ic('bell')}${x.t.due_time ? `${D.hm(x.t.due_time)} ` : ''}${esc(x.t.title)} ${chips(peopleOf(x.t))}</div>`
+          )
+          .join('')}
+        ${open ? `<div class="wline small muted with-ic">${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
+      </div>
+      </button>
+      ${mealField(meal, day, 'Essen', 'next', 'week-meal')}
+    </div>`;
+}
+
+function viewWoche() {
+  const out = [`<button class="btn ghost wide list-earlier" data-action="list-earlier">${ic('down', 'flip')}Frühere Tage anzeigen</button>`];
+  for (let day = state.listFrom; day <= state.listTo; day = D.addDays(day, 1)) {
+    if (day === state.listFrom || D.isoWeekday(day) === 1) out.push(listWeekHead(D.startOfWeek(day), day));
+    out.push(listDay(day));
+  }
+  out.push('<div class="list-more muted small" aria-hidden="true">Weitere Tage werden geladen …</div>');
+  return out.join('');
+}
+
+// Oberster sichtbarer Tag (unter der Kopfzeile)
+function listTopDay() {
+  const head = $('header.top')?.getBoundingClientRect().bottom || 0;
+  for (const el of document.querySelectorAll('#main .week-day[data-day]')) {
+    if (el.getBoundingClientRect().bottom > head + 8) return el.dataset.day;
+  }
+  return state.listFrom;
+}
+
+// Titel oben passend zur sichtbaren Woche
+function listTitle(top) {
+  const today = D.todayKey();
+  const ws = D.startOfWeek(top || state.listFrom);
+  const current = ws === D.startOfWeek(today);
+  return `<span class="rel">KW ${D.isoWeekNumber(ws)}</span><span class="date">${current && state.listFrom === today ? 'Ab heute' : esc(weekRange(ws))}</span>`;
+}
+
+function updateListHeader() {
+  if (state.view !== 'woche' || state.cal === 'monat') return;
+  state.listTop = listTopDay();
+  const t = $('header.top .title-btn');
+  const html = listTitle(state.listTop);
+  if (t && t.dataset.html !== html) {
+    t.innerHTML = html;
+    t.dataset.html = html;
+  }
+}
+
+// Eine Woche vor/zurück (Pfeile und Wischen)
+function listStep(dir) {
+  const ws = D.startOfWeek(state.listTop || listTopDay());
+  listGoto(D.addDays(ws, 7 * dir));
+  render();
 }
 
 // Monatsansicht: Raster mit Punkten, KW-Spalte, darunter die Einträge des gewählten Tags
@@ -1133,16 +1210,6 @@ function monthAgenda(day) {
       }
       ${empty ? '<p class="empty">Nichts eingetragen.</p>' : ''}
     </section>`;
-}
-
-// Wochenansicht: oben ein Knopf für alle Zutaten der geplanten Gerichte
-function weekIngredientsButton() {
-  const ids = Array.from({ length: 7 }, (_, i) => D.addDays(state.weekStart, i))
-    .map((day) => mealRecipe(state.data.meals.find((m) => m.date === day))?.id)
-    .filter(Boolean);
-  if (!ids.length) return '';
-  return `<button class="link week-shop" data-action="ingredients" data-ids="${ids.join(',')}">
-    ${ic('einkauf')}Zutaten für ${ids.length} ${ids.length === 1 ? 'Gericht' : 'Gerichte'} einkaufen</button>`;
 }
 
 /* ================= Essen & Kochbuch ================= */
@@ -2006,12 +2073,10 @@ function header() {
   }
   if (state.view === 'woche') {
     const month = state.cal === 'monat';
-    const end = D.addDays(state.weekStart, 6);
     const m = D.fromKey(state.monthSel);
     const title = month
       ? `<span class="rel">${m.getFullYear()}</span><span class="date">${m.toLocaleDateString('de-DE', { month: 'long' })}</span>`
-      : `<span class="rel">KW ${D.isoWeekNumber(state.weekStart)}</span>
-         <span class="date">${D.formatDayMonth(state.weekStart)} – ${D.formatDayMonth(end)}</span>`;
+      : listTitle(state.listTop);
     return bigHeader(
       `<button class="title-btn" data-action="cal-today" aria-label="Zu heute">${title}</button>`,
       `<button class="icon-btn" data-action="cal-step" data-dir="-1" aria-label="Zurück">${ic('left')}</button>
@@ -2019,7 +2084,7 @@ function header() {
        ${searchButton()}`,
       'cal-top',
       `<div class="seg wide cal-switch">
-          <button class="${month ? '' : 'on'}" data-action="cal-mode" data-mode="woche">Woche</button>
+          <button class="${month ? '' : 'on'}" data-action="cal-mode" data-mode="woche">Liste</button>
           <button class="${month ? 'on' : ''}" data-action="cal-mode" data-mode="monat">Monat</button>
         </div>`
     );
@@ -2115,7 +2180,7 @@ function render() {
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : weekIngredientsButton() + viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage };
+  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
@@ -2124,6 +2189,17 @@ function render() {
     ${['heute', 'woche', 'person'].includes(state.view) ? `<button class="fab" data-action="add" aria-label="Neu">${ic('plus')}</button>` : ''}
     ${tabbar()}`;
   window.scrollTo(0, scroll);
+  if (state.view === 'woche' && state.cal !== 'monat') {
+    const target = state.listScrollTo;
+    state.listScrollTo = null;
+    if (target === 'top') window.scrollTo(0, 0);
+    else if (target) {
+      const el = document.getElementById(target);
+      const head = $('header.top')?.getBoundingClientRect().height || 0;
+      if (el) window.scrollTo(0, window.scrollY + el.getBoundingClientRect().top - head - 8);
+    }
+    updateListHeader();
+  }
   renderSearchResults(); // offene Suche aktuell halten
 }
 
@@ -2809,7 +2885,7 @@ const actions = {
     state.view = d.tab;
     // "Heute" unten führt immer zum heutigen Tag zurück
     if (d.tab === 'heute') state.date = D.todayKey();
-    if (d.tab === 'woche') state.weekStart = D.startOfWeek(state.date);
+    if (d.tab === 'woche') state.date === D.todayKey() ? listReset() : listGoto(state.date);
     window.scrollTo(0, 0);
     render();
   },
@@ -2828,29 +2904,31 @@ const actions = {
       p.click();
     }
   },
-  'prev-week': () => {
-    state.weekStart = D.addDays(state.weekStart, -7);
+  'list-earlier': () => {
+    // eine Woche Vergangenheit dazu, ohne dass die Liste springt
+    const anchor = $('#main .week-day[data-day]');
+    const before = anchor?.getBoundingClientRect().top;
+    const ws = D.startOfWeek(state.listFrom);
+    state.listFrom = ws < state.listFrom ? ws : D.addDays(ws, -7);
     render();
-  },
-  'next-week': () => {
-    state.weekStart = D.addDays(state.weekStart, 7);
-    render();
-  },
-  'this-week': () => {
-    state.weekStart = D.startOfWeek(D.todayKey());
-    render();
+    const again = anchor && document.getElementById(`wd-${anchor.dataset.day}`);
+    if (again) window.scrollBy(0, again.getBoundingClientRect().top - before);
+    updateListHeader();
   },
   'goto-week': () => actions.tab({ tab: 'woche' }),
   'cal-mode': (d) => {
     state.cal = d.mode;
     lsSet('fo-cal', d.mode);
-    if (d.mode === 'monat') state.monthSel = state.weekStart <= state.date && state.date <= D.addDays(state.weekStart, 6) ? state.date : state.weekStart;
-    else state.weekStart = D.startOfWeek(state.monthSel);
+    if (d.mode === 'monat') {
+      const top = state.listTop || D.todayKey();
+      state.monthSel = D.startOfWeek(top) === D.startOfWeek(D.todayKey()) ? D.todayKey() : top;
+    } else state.monthSel === D.todayKey() ? listReset() : listGoto(state.monthSel);
+    window.scrollTo(0, 0);
     render();
   },
   'cal-step': (d) => slideStep(Number(d.dir)),
   'cal-today': () => {
-    state.weekStart = D.startOfWeek(D.todayKey());
+    listReset();
     state.monthSel = D.todayKey();
     state.date = D.todayKey();
     render();
@@ -2861,7 +2939,7 @@ const actions = {
     render();
   },
   'open-week': (d) => {
-    state.weekStart = d.week;
+    listGoto(d.week);
     state.cal = 'woche';
     lsSet('fo-cal', 'woche');
     window.scrollTo(0, 0);
@@ -3415,7 +3493,7 @@ function stepBy(dir, days = 1) {
     const key = D.toKey(next);
     state.monthSel = today.slice(0, 7) === key.slice(0, 7) ? today : key;
   } else {
-    state.weekStart = D.addDays(state.weekStart, 7 * dir);
+    return listStep(dir);
   }
   render();
 }
@@ -3489,6 +3567,26 @@ document.addEventListener(
   { passive: true }
 );
 
+// Kalender-Liste: beim Scrollen Titel nachführen und unten weitere Tage laden
+let listTick = false;
+window.addEventListener(
+  'scroll',
+  () => {
+    if (listTick || state.view !== 'woche' || state.cal === 'monat') return;
+    listTick = true;
+    requestAnimationFrame(() => {
+      listTick = false;
+      updateListHeader();
+      const nearEnd = window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900;
+      if (nearEnd && state.listTo < D.addDays(D.todayKey(), 400)) {
+        state.listTo = D.addDays(state.listTo, 14);
+        render();
+      }
+    });
+  },
+  { passive: true }
+);
+
 // Wieder geöffnet: aktuelle Daten holen. Nach längerer Pause zurück auf "Heute".
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
@@ -3497,7 +3595,7 @@ document.addEventListener('visibilitychange', () => {
   }
   if (state.hiddenAt && Date.now() - state.hiddenAt > 10 * 60 * 1000 && !document.body.classList.contains('sheet-open')) {
     state.date = D.todayKey();
-    state.weekStart = D.startOfWeek(state.date);
+    listReset();
     state.view = 'heute';
   }
   state.hiddenAt = null;

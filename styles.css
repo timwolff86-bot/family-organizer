@@ -3555,3 +3555,81 @@ details[open] > summary .sum-ic {
 .reg-list .title {
   overflow-wrap: anywhere;
 }
+
+/* ================= Kalender-Liste ================= */
+.ic.flip {
+  transform: rotate(180deg);
+}
+.list-earlier {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.list-week {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 20px 2px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  scroll-margin-top: 140px;
+}
+.list-earlier + .list-week {
+  margin-top: 0;
+}
+.list-week b {
+  color: var(--text);
+  font-weight: 600;
+}
+.list-week .link {
+  font-size: 13px;
+}
+.list-week .link .ic {
+  width: 15px;
+  height: 15px;
+}
+.list-week + .week-ferien {
+  margin: -2px 2px 8px;
+  font-size: 13px;
+}
+.today-tag {
+  display: inline-block;
+  align-self: flex-start;
+  margin-bottom: 2px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.week-day.free .today-tag {
+  display: none;
+}
+.week-day.past {
+  opacity: 0.6;
+}
+.list-more {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+.week-day .wd {
+  flex-wrap: wrap;
+}
+.week-day .wd .today-tag {
+  flex-basis: auto;
+  margin: 4px 0 0;
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.week-day.free .wd .today-tag {
+  display: none;
+}
+.week-day .wd {
+  max-width: 54px;
+  row-gap: 0;
+}
