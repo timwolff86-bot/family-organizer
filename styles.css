@@ -2546,3 +2546,27 @@ main {
     transition: opacity 0.3s;
   }
 }
+
+/* Meldung vom Hintergrund abheben: leicht getönte Fläche, klarer Rand, deutlicher Schatten.
+   Schrift bleibt neutral, nur "Bearbeiten" in der App-Farbe. */
+#toast {
+  background: color-mix(in srgb, var(--accent) 9%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+#toast.confirm {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) #toast {
+    background: color-mix(in srgb, var(--accent) 14%, var(--card));
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  }
+}
+:root[data-theme='dark'] #toast {
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+.cf-head {
+  color: var(--muted);
+}
