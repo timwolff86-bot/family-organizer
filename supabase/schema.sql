@@ -179,6 +179,9 @@ create table if not exists public.push_log (
 alter table public.push_log enable row level security;
 
 
+-- Enddatum für wiederkehrende Erinnerungen/Aufgaben (Update 13)
+alter table public.tasks add column if not exists repeat_until date;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$

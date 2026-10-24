@@ -380,7 +380,7 @@ async function removeWithUndo(table, ids, label) {
 }
 
 // Spalte → Datenbank-Update, das sie anlegt (für eine verständliche Meldung)
-const COLUMN_UPDATES = { remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
+const COLUMN_UPDATES = { repeat_until: 13, remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
 
 function fail(err) {
   console.error(err);
@@ -602,6 +602,7 @@ function occursOn(t, day) {
   const r = rhythmOf(t);
   const from = t.repeat_from;
   if (from && day < from) return false;
+  if (t.repeat_until && day > t.repeat_until) return false; // Serie beendet
   const [y, m, d] = day.split('-').map(Number);
   if (r === 'weekly') return t.weekdays?.includes(D.isoWeekday(day));
   if (r === 'biweekly') {
@@ -621,10 +622,11 @@ function rhythmText(t) {
   const r = rhythmOf(t);
   const wd = () => [...(t.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ');
   const fd = t.repeat_from ? D.fromKey(t.repeat_from) : null;
-  if (r === 'weekly') return wd();
-  if (r === 'biweekly') return `alle 2 Wochen ${wd()}`;
-  if (r === 'monthly') return `monatlich am ${fd?.getDate()}.`;
-  if (r === 'yearly') return `jährlich am ${fd?.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' })}`;
+  const until = t.repeat_until ? ` bis ${D.formatDayMonth(t.repeat_until)}` : '';
+  if (r === 'weekly') return wd() + until;
+  if (r === 'biweekly') return `alle 2 Wochen ${wd()}${until}`;
+  if (r === 'monthly') return `monatlich am ${fd?.getDate()}.${until}`;
+  if (r === 'yearly') return `jährlich am ${fd?.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' })}${until}`;
   return '';
 }
 
@@ -2522,7 +2524,10 @@ function rhythmFields(t, day) {
           .join('')}
       </select></label>
       <div data-rhythm="weekly biweekly">${weekdayPicker(t.weekdays || [D.isoWeekday(day || state.date)])}</div>
-      <label><span data-from-label>${r === 'weekly' ? 'Ab (optional)' : 'Erstes Mal am'}</span><input type="date" name="repeat_from" value="${esc(from)}" /></label>
+      <div class="row">
+        <label><span data-from-label>${r === 'weekly' ? 'Ab (optional)' : 'Erstes Mal am'}</span><input type="date" name="repeat_from" value="${esc(from)}" /></label>
+        <label>Endet am (optional)<input type="date" name="repeat_until" value="${esc(t.repeat_until || '')}" /></label>
+      </div>
     </div>`;
 }
 
@@ -2535,18 +2540,23 @@ function updateRhythmVisibility(form) {
 }
 
 // Werte für die Datenbank aus dem Formular
-function readRhythm(f) {
+function readRhythm(f, t) {
   const form = $('#sheet-root form');
   const r = f.get('rhythm');
   const wds = readWeekdays(form);
   if ((r === 'weekly' || r === 'biweekly') && !wds.length) return { error: 'Bitte mindestens einen Wochentag wählen.' };
+  const from = f.get('repeat_from') || state.date;
+  const until = f.get('repeat_until') || null;
+  if (until && until < from) return { error: 'Das Enddatum liegt vor dem Start.' };
   return {
     repeat: r,
     weekdays: r === 'weekly' || r === 'biweekly' ? wds : null,
-    repeat_from: f.get('repeat_from') || state.date,
+    repeat_from: from,
+    // nur mitschicken, wenn gesetzt oder vorher gesetzt – so klappt Sichern auch ohne Update 13
+    ...(until || t?.repeat_until ? { repeat_until: until } : {}),
   };
 }
-const noRhythm = { repeat: null, weekdays: null, repeat_from: null };
+const noRhythmFor = (t) => ({ repeat: null, weekdays: null, repeat_from: null, ...(t?.repeat_until ? { repeat_until: null } : {}) });
 
 function reminderForm(t, day) {
   const isNew = !t;
@@ -2574,7 +2584,7 @@ function reminderForm(t, day) {
     (f) => {
       const people = readPeople();
       const repeat = f.get('repeat');
-      const rh = repeat === 'weekly' ? readRhythm(f) : noRhythm;
+      const rh = repeat === 'weekly' ? readRhythm(f, t) : noRhythmFor(t);
       if (rh.error) return toast(rh.error);
       saveConfirm('tasks', {
         id: t.id,
@@ -2622,7 +2632,7 @@ function taskForm(t, day) {
     inner,
     (f) => {
       const repeat = f.get('repeat');
-      const rh = repeat === 'weekly' ? readRhythm(f) : noRhythm;
+      const rh = repeat === 'weekly' ? readRhythm(f, t) : noRhythmFor(t);
       if (rh.error) return toast(rh.error);
       const people = readPeople();
       saveConfirm('tasks', {

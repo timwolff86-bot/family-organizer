@@ -165,6 +165,7 @@ function occursOn(t: Row, day: string): boolean {
   const r = rhythmOf(t);
   const from = t.repeat_from;
   if (from && day < from) return false;
+  if (t.repeat_until && day > t.repeat_until) return false; // Serie beendet
   const [y, m, d] = day.split('-').map(Number);
   if (r === 'weekly') return !!t.weekdays?.includes(isoWeekday(day));
   if (r === 'biweekly') {

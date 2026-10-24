@@ -3527,3 +3527,8 @@ details[open] > summary .sum-ic {
   font-weight: 400;
   color: var(--text);
 }
+/* Schnellwahl unter den Wochentagen: etwas Luft nach oben */
+.wd-presets {
+  margin-top: 8px;
+  gap: 18px;
+}
