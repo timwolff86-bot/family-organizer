@@ -2867,9 +2867,10 @@ const actions = {
     toast('Test-Nachricht wird gesendet …');
     try {
       const body = { test: true, endpoint: state.pushEndpoint };
-      // Supabase unterscheidet Groß/klein im Namen – beide Schreibweisen versuchen
-      await store.invokeFunction('push', body).catch((e) =>
-        e.status === 404 && !/Gerät/.test(e.message) ? store.invokeFunction('Push', body) : Promise.reject(e)
+      // Supabase unterscheidet Groß/klein im Namen – beide Schreibweisen versuchen.
+      // Eine nicht vorhandene Funktion blockiert der Browser ohne Status, daher bei jedem Fehler.
+      await store.invokeFunction('Push', body).catch((first) =>
+        /Gerät/.test(first.message) ? Promise.reject(first) : store.invokeFunction('push', body).catch((second) => Promise.reject(second.status ? second : first))
       );
       toast('Gesendet – sie sollte gleich erscheinen.');
     } catch (e) {
