@@ -550,6 +550,11 @@ function nextBirthday(b, from = D.todayKey()) {
   return thisYear >= from ? thisYear : birthdayIn(b, y + 1);
 }
 const ageOn = (b, day) => (b.year ? Number(day.slice(0, 4)) - b.year : null);
+// Wie Feiertag/Ferien: Name in normaler Schrift, Alter grau
+const birthdayHtml = (b, day) => {
+  const age = ageOn(b, day);
+  return `🎂 ${esc(b.name)} hat Geburtstag${age ? ` <span class="muted">(${age})</span>` : ''}`;
+};
 const birthdayText = (b, day) => {
   const age = ageOn(b, day);
   return `${b.name} hat Geburtstag${age ? ` (${age})` : ''}`;
@@ -723,7 +728,7 @@ function viewHeute() {
         ? `<p class="bd-line">${[
             holiday ? `<span class="day-note">🎉 ${esc(holiday.name)} <span class="muted">(Feiertag)</span></span>` : '',
             ferien ? `<span class="day-note">🏖️ ${esc(ferien.name)} <span class="muted">bis ${D.formatShort(ferien.end)}</span></span>` : '',
-            ...bdays.map((b) => `<button class="link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, day))}</button>`),
+            ...bdays.map((b) => `<button class="day-note bd-note" data-action="edit-birthday" data-id="${b.id}">${birthdayHtml(b, day)}</button>`),
           ]
             .filter(Boolean)
             .join('<br />')}</p>`
@@ -890,7 +895,7 @@ function viewWoche() {
           </div>
           <div class="body">
             ${holiday ? `<div class="wline hol">🎉 ${esc(holiday.name)}</div>` : ''}
-            ${bdays.map((b) => `<div class="wline bd">🎂 ${esc(birthdayText(b, day))}</div>`).join('')}
+            ${bdays.map((b) => `<div class="wline bd">${birthdayHtml(b, day)}</div>`).join('')}
             ${
               events.length
                 ? events
@@ -1007,7 +1012,7 @@ function monthAgenda(day) {
   const notes = [
     holiday ? `<div class="ag-note">🎉 ${esc(holiday.name)}</div>` : '',
     ferien ? `<div class="ag-note">🏖️ ${esc(ferien.name)}</div>` : '',
-    ...birthdaysOn(day).map((b) => `<button class="ag-note link" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(birthdayText(b, day))}</button>`),
+    ...birthdaysOn(day).map((b) => `<button class="ag-note bd-note" data-action="edit-birthday" data-id="${b.id}">${birthdayHtml(b, day)}</button>`),
   ].join('');
   const items = [...reminders, ...tasks];
   const empty = !events.length && !items.length && !meal?.text && !notes;

@@ -2861,3 +2861,16 @@ form.sheet .sheet-body {
 .scope-card .btn.primary {
   color: var(--on-accent);
 }
+
+/* Geburtstage wie Feiertage/Ferien: normale Schrift, Alter grau */
+.bd-note {
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  font-size: 15px;
+  padding: 0;
+}
+.bd-note .muted,
+.wline.bd .muted {
+  font-weight: 500;
+}
