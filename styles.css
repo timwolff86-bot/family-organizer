@@ -2570,3 +2570,75 @@ main {
 .cf-head {
   color: var(--muted);
 }
+
+/* Formulare: "Sichern" fest unten, Löschen dezent am Ende */
+form.sheet {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+form.sheet .sheet-body {
+  flex: 1 0 auto;
+}
+.head-spacer {
+  width: 70px; /* gleich breit wie "Abbrechen", damit der Titel mittig bleibt */
+}
+.sheet-head .link {
+  min-width: 70px;
+  text-align: left;
+}
+.sheet-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+}
+.sheet.kb-open .sheet-foot {
+  padding-bottom: 10px;
+}
+.sheet-foot .btn {
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.sheet-extra {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sheet-extra .btn.danger {
+  border: 0;
+  background: none;
+  font-weight: 600;
+  padding: 10px;
+}
+.sheet-foot .btn.primary {
+  color: var(--on-accent);
+}
+/* Kopfzeile: Titel genau mittig, links Abbrechen/Schließen, rechts ggf. Aktion */
+.sheet-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+}
+.sheet-head > :first-of-type {
+  justify-self: start;
+}
+.sheet-head > :last-child {
+  justify-self: end;
+}
+.sheet-head strong {
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.head-spacer,
+.sheet-head .link {
+  min-width: 0;
+}

@@ -1946,6 +1946,8 @@ let sheetSubmit = null;
 // compact: kleines Fenster unten (z. B. Einkaufsartikel), sonst fast Vollbild
 function openSheet(title, inner, onSubmit, extraButtons = '', { compact = false } = {}) {
   sheetSubmit = onSubmit;
+  // Eine noch sichtbare Bestätigung würde über dem Formular liegen
+  if ($('#toast').classList.contains('confirm')) $('#toast').classList.remove('show');
   $('#sheet-root').innerHTML = `
     <div class="backdrop" data-action="close-sheet"></div>
     <form class="sheet ${compact ? 'compact' : 'full'}" data-form="sheet" role="dialog" aria-label="${esc(title)}">
@@ -1953,14 +1955,37 @@ function openSheet(title, inner, onSubmit, extraButtons = '', { compact = false 
         <span class="grabber" aria-hidden="true"></span>
         <button type="button" class="link" data-action="close-sheet">Abbrechen</button>
         <strong>${esc(title)}</strong>
-        <button type="submit" class="link strong">Sichern</button>
+        <span class="head-spacer" aria-hidden="true"></span>
       </div>
       <div class="sheet-body">${inner}${extraButtons ? `<div class="sheet-extra">${extraButtons}</div>` : ''}</div>
+      <div class="sheet-foot"><button type="submit" class="btn primary wide">Sichern</button></div>
     </form>`;
   document.body.classList.add('sheet-open');
+  fitToKeyboard();
   const first = $('#sheet-root input[name="title"], #sheet-root input[name="name"]');
   if (first && !first.value) setTimeout(() => first.focus(), 50);
 }
+
+// Bildschirmtastatur: Fenster unten so weit verkürzen, dass "Sichern" darüber sichtbar bleibt
+function fitToKeyboard() {
+  const vv = window.visualViewport;
+  const sheet = $('#sheet-root .sheet');
+  if (!vv || !sheet) return;
+  const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+  const open = kb > 80; // kleinere Unterschiede sind Leisten des Browsers, keine Tastatur
+  sheet.style.bottom = open ? `${kb}px` : '';
+  sheet.classList.toggle('kb-open', open);
+}
+window.visualViewport?.addEventListener('resize', fitToKeyboard);
+window.visualViewport?.addEventListener('scroll', fitToKeyboard);
+// Feld mit Fokus nicht hinter dem Sichern-Knopf verstecken
+document.addEventListener('focusin', (e) => {
+  if (!e.target.closest?.('.sheet') || !e.target.matches('input, textarea, select')) return;
+  setTimeout(() => {
+    fitToKeyboard();
+    e.target.scrollIntoView({ block: 'nearest' });
+  }, 300);
+});
 
 function closeSheet() {
   $('#sheet-root').innerHTML = '';
