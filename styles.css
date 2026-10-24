@@ -2481,3 +2481,68 @@ main {
   flex: none;
   padding: 8px 4px 8px 8px;
 }
+
+/* Meldungen im Stil der Karten (hell bzw. dunkel), weich ein- und ausblenden */
+#toast {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  transform: translateX(-50%) translateY(14px) scale(0.98);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.3, 0, 0.2, 1);
+}
+#toast.show {
+  transform: translateX(-50%) translateY(0) scale(1);
+  transition:
+    opacity 0.45s ease,
+    transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#toast .toast-btn {
+  color: var(--accent);
+}
+#toast.confirm {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) #toast {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme='dark'] #toast {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.cf-head {
+  color: var(--accent);
+  opacity: 1;
+}
+.cf-sub {
+  color: var(--muted);
+  opacity: 1;
+}
+.cf-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+  transform-origin: left center;
+}
+@keyframes cf-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #toast,
+  #toast.show {
+    transition: opacity 0.3s;
+  }
+}

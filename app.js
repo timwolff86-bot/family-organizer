@@ -231,11 +231,17 @@ function confirmToast(head, lines, onEdit) {
       <div class="cf-head">✓ ${esc(head)}</div>
       ${lines.filter(Boolean).map((l, i) => `<div class="${i ? 'cf-sub' : 'cf-main'}">${esc(l)}</div>`).join('')}
     </div>
-    <button type="button" class="toast-btn">Bearbeiten</button>`;
+    <button type="button" class="toast-btn">Bearbeiten</button>
+    <span class="cf-bar" aria-hidden="true"></span>`;
+  const bar = el.querySelector('.cf-bar');
   const hide = () => el.classList.remove('show');
+  // Leiste unten zeigt, wie lange die Meldung noch sichtbar ist
   const arm = (ms) => {
     clearTimeout(toastTimer);
     toastTimer = setTimeout(hide, ms);
+    bar.style.animation = 'none';
+    void bar.offsetWidth; // Animation neu starten
+    bar.style.animation = `cf-shrink ${ms}ms linear forwards`;
   };
   el.querySelector('.toast-btn').onclick = () => {
     hide();
@@ -245,6 +251,7 @@ function confirmToast(head, lines, onEdit) {
   el.onpointerdown = (e) => {
     startY = e.clientY;
     clearTimeout(toastTimer);
+    bar.style.animationPlayState = 'paused';
   };
   el.onpointermove = (e) => {
     if (startY != null && e.clientY - startY > 30) {
