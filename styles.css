@@ -3532,3 +3532,26 @@ details[open] > summary .sum-ic {
   margin-top: 8px;
   gap: 18px;
 }
+
+/* Personenseite "Regelmäßig": Symbol links, Titel oben, Rhythmus darunter */
+.reg-list .reg-row {
+  align-items: flex-start;
+}
+.reg-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  padding-top: 2px;
+  color: var(--muted);
+}
+.reg-ic .ic {
+  width: 18px;
+  height: 18px;
+}
+.reg-list .grow-col {
+  min-width: 0;
+}
+.reg-list .title {
+  overflow-wrap: anywhere;
+}

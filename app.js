@@ -283,7 +283,7 @@ function confirmSaved(kind, id, isNew) {
     if (!ev) return;
     const weekly = ev.weekdays?.length > 0;
     const when = weekly
-      ? `jeden ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}${ev.end_date ? ` bis ${D.formatDayMonth(ev.end_date)}` : ''}`
+      ? `${everyText(ev.weekdays)}${ev.end_date ? ` bis ${D.formatDayMonth(ev.end_date)}` : ''}`
       : ev.end_date && ev.end_date > ev.date
         ? `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}`
         : D.formatShort(ev.date);
@@ -594,6 +594,23 @@ const peopleOf = (t) => (t.assignees?.length ? t.assignees : t.assignee ? [t.ass
 const chips = (ids) => ids.map((id) => chip(id)).join('');
 
 // Wiederholung: 'weekly' | 'biweekly' | 'monthly' | 'yearly' (ältere Einträge: nur weekdays = wöchentlich)
+// Wochentage kurz: [1..7] → "täglich", [1..5] → "Mo–Fr", [1,2,3,5] → "Mo–Mi, Fr"
+function weekdaysText(wds) {
+  const days = [...new Set(wds || [])].sort((a, b) => a - b);
+  if (days.length === 7) return 'täglich';
+  const runs = [];
+  for (const d of days) {
+    const last = runs[runs.length - 1];
+    if (last && d === last[1] + 1) last[1] = d;
+    else runs.push([d, d]);
+  }
+  return runs
+    .flatMap(([a, b]) => (b - a >= 2 ? [`${D.WD_SHORT[a - 1]}–${D.WD_SHORT[b - 1]}`] : a === b ? [D.WD_SHORT[a - 1]] : [D.WD_SHORT[a - 1], D.WD_SHORT[b - 1]]))
+    .join(', ');
+}
+// "jeden Mo, Do" bzw. "täglich"
+const everyText = (wds) => (new Set(wds || []).size === 7 ? 'täglich' : `jeden ${weekdaysText(wds)}`);
+
 const rhythmOf = (t) => t.repeat || (t.weekdays?.length ? 'weekly' : null);
 const isRecurring = (t) => !!rhythmOf(t);
 const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
@@ -620,7 +637,7 @@ function occursOn(t, day) {
 
 function rhythmText(t) {
   const r = rhythmOf(t);
-  const wd = () => [...(t.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ');
+  const wd = () => weekdaysText(t.weekdays);
   const fd = t.repeat_from ? D.fromKey(t.repeat_from) : null;
   const until = t.repeat_until ? ` bis ${D.formatDayMonth(t.repeat_until)}` : '';
   if (r === 'weekly') return wd() + until;
@@ -906,17 +923,18 @@ function viewPerson() {
   const regular = [
     ...(show('events') ? [...seriesEvents.values()] : []).map((ev) => {
       const time = timeLabel({ ev, day: today, multi: false });
+      const when = [weekdaysText(ev.weekdays) + (ev.end_date ? ` bis ${D.formatDayMonth(ev.end_date)}` : ''), time].filter(Boolean).join(' · ');
       return `<li><button class="reg-row" data-action="edit-event" data-id="${ev.id}">
-        <span class="reg-when">${esc(rhythmShort(ev).replace('jeden ', ''))}</span>
-        <span class="grow-col"><span class="title with-ic">${ic('calendar')}${esc(ev.title)}</span>${time ? `<span class="muted small">${esc(time)}</span>` : ''}</span>
+        <span class="reg-ic">${ic('calendar')}</span>
+        <span class="grow-col"><span class="title">${esc(ev.title)}</span><span class="muted small">${esc(when)}</span></span>
       </button></li>`;
     }),
     ...[...seriesTasks.values()]
       .filter((t) => show(isReminder(t) ? 'reminders' : 'tasks'))
       .map(
         (t) => `<li><button class="reg-row" data-action="edit-task" data-id="${t.id}">
-          <span class="reg-when">${esc(rhythmText(t))}</span>
-          <span class="grow-col"><span class="title with-ic">${ic(isReminder(t) ? 'bell' : 'task')}${esc(t.title)}</span>${t.due_time ? `<span class="muted small">${D.hm(t.due_time)}</span>` : ''}</span>
+          <span class="reg-ic">${ic(isReminder(t) ? 'bell' : 'task')}</span>
+          <span class="grow-col"><span class="title">${esc(t.title)}</span><span class="muted small">${esc([rhythmText(t), t.due_time ? D.hm(t.due_time) : ''].filter(Boolean).join(' · '))}</span></span>
         </button></li>`
       ),
   ];
@@ -1847,7 +1865,7 @@ function searchItems() {
         kind: 'termin', score, ...when, title: ev.title, people: eventPeople(ev),
         pill: multi ? multiPill(ev, `${daysBetween(ev.date, ev.end_date) + 1} Tage`) : '',
         sub: [
-          weekly ? `jeden ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}` : '',
+          weekly ? everyText(ev.weekdays) : '',
           multi ? `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}` : '',
           time ? `${time}${ev.end_time ? `–${D.hm(ev.end_time)}` : ''}` : ev.all_day ? 'Ganztägig' : '',
           ev.location ? ev.location : '',
@@ -2484,7 +2502,7 @@ function occurrenceList(ev, n) {
     ${more ? `<button type="button" class="link" data-action="more-occurrences" data-id="${ev.id}" data-n="${n + 8}">Weitere anzeigen</button>` : ''}`;
 }
 
-const rhythmShort = (ev) => `jeden ${[...(ev.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}`;
+const rhythmShort = (ev) => everyText(ev.weekdays);
 
 
 
