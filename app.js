@@ -1986,14 +1986,15 @@ function loginScreen() {
 }
 
 function whoScreen() {
-  const ms = members().filter((m) => m.role !== 'kind');
+  // Alle zur Auswahl, auch Kinder mit eigenem Handy – Erwachsene zuerst
+  const ms = [...members()].sort((a, b) => (a.role === 'kind') - (b.role === 'kind'));
   return `
     <div class="center-screen">
       <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
       <h1>Wer bist du?</h1>
       <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Einstellungen“ geändert werden.</p>
       <div class="who">
-        ${(ms.length ? ms : members())
+        ${ms
           .map((m) => `<button class="btn big" style="--c:${esc(m.color)}" data-action="set-me" data-id="${m.id}">${avatar(m)}${esc(m.name)}</button>`)
           .join('')}
       </div>
