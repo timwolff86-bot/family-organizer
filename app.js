@@ -33,6 +33,8 @@ const state = {
   monthSel: D.todayKey(), // im Monat ausgewählter Tag
   land: lsGet('fo-land') ?? 'NW', // Bundesland für Ferien/Feiertage, '' = aus
   pendingRender: false,
+  personFilter: null, // Personenansicht: nur Termine/Erinnerungen/Aufgaben
+  personRange: [14, 31, 92].includes(Number(lsGet('fo-person-range'))) ? Number(lsGet('fo-person-range')) : 14,
 };
 
 // Darstellung: 'auto' (wie das Handy), 'light' oder 'dark'
@@ -770,34 +772,82 @@ function viewHeute() {
 }
 
 // Übersicht einer Person: alles der nächsten 14 Tage
+const PERSON_RANGES = [
+  [14, '2 Wochen'],
+  [31, '1 Monat'],
+  [92, '3 Monate'],
+];
+
 function viewPerson() {
   const id = state.personId;
   const today = D.todayKey();
+  const span = state.personRange;
+  const long = span > 14; // längere Zeiträume: feste Wochentermine nur einmal oben
+  const f = state.personFilter; // null | 'events' | 'reminders' | 'tasks'
+  const show = (k) => !f || f === k;
   const mine = (ids) => ids.includes(id);
-  let counts = { events: 0, reminders: 0, tasks: 0 };
+  const counts = { events: 0, reminders: 0, tasks: 0 };
   const days = [];
-  for (let i = 0; i < 14; i++) {
+  const seriesEvents = new Map();
+  const seriesTasks = new Map();
+  for (let i = 0; i < span; i++) {
     const day = D.addDays(today, i);
-    const events = eventsOn(day).filter((o) => mine(eventPeople(o.ev)));
-    const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => mine(peopleOf(x.t)));
-    const tasks = tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)));
-    if (!events.length && !reminders.length && !tasks.length) continue;
-    counts.events += events.length;
+    let events = eventsOn(day).filter((o) => mine(eventPeople(o.ev)));
+    let reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => mine(peopleOf(x.t)));
+    let tasks = tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)));
+    counts.events += events.filter((o) => !o.cancelled).length;
     counts.reminders += reminders.filter((x) => !x.done).length;
     counts.tasks += tasks.filter((x) => !x.done).length;
-    days.push({ day, events, items: [...reminders, ...tasks] });
+    if (long) {
+      // Regelmäßiges (ohne Ausfälle) wandert in den Block "Regelmäßig"
+      for (const o of events) if (o.weekly && !o.cancelled) seriesEvents.set(o.ev.id, o.ev);
+      for (const x of [...reminders, ...tasks]) if (x.recurring) seriesTasks.set(x.t.id, x.t);
+      // Mehrtägiges nur am ersten Tag (bzw. heute, wenn es schon läuft)
+      events = events.filter((o) => (!o.weekly || o.cancelled) && (!o.multi || o.day === o.ev.date || i === 0));
+      reminders = reminders.filter((x) => !x.recurring);
+      tasks = tasks.filter((x) => !x.recurring);
+    }
+    const items = [...(show('reminders') ? reminders : []), ...(show('tasks') ? tasks : [])];
+    const evs = show('events') ? events : [];
+    if (evs.length || items.length) days.push({ day, events: evs, items });
   }
   const label = (day) => {
     const rel = D.relativeLabel(day);
     return ['Heute', 'Morgen', 'Übermorgen'].includes(rel) ? `${rel} · ${D.formatShort(day)}` : D.formatLong(day);
   };
+  const tile = (k, n, text) =>
+    `<button class="${f === k ? 'on' : ''} ${f && f !== k ? 'off' : ''}" data-action="person-filter" data-f="${k}" aria-pressed="${f === k}">
+      <b>${n}</b><span>${text}</span></button>`;
+
+  const regular = [
+    ...(show('events') ? [...seriesEvents.values()] : []).map((ev) => {
+      const time = timeLabel({ ev, day: today, multi: false });
+      return `<li><button class="reg-row" data-action="edit-event" data-id="${ev.id}">
+        <span class="reg-when">${esc(rhythmShort(ev).replace('jeden ', ''))}</span>
+        <span class="grow-col"><span class="title">📅 ${esc(ev.title)}</span>${time ? `<span class="muted small">${esc(time)}</span>` : ''}</span>
+      </button></li>`;
+    }),
+    ...[...seriesTasks.values()]
+      .filter((t) => show(isReminder(t) ? 'reminders' : 'tasks'))
+      .map(
+        (t) => `<li><button class="reg-row" data-action="edit-task" data-id="${t.id}">
+          <span class="reg-when">${esc(rhythmText(t))}</span>
+          <span class="grow-col"><span class="title">${isReminder(t) ? '🔔' : '☑️'} ${esc(t.title)}</span>${t.due_time ? `<span class="muted small">${D.hm(t.due_time)}</span>` : ''}</span>
+        </button></li>`
+      ),
+  ];
+  const what = { events: 'Termine', reminders: 'Erinnerungen', tasks: 'Aufgaben' }[f] || 'Einträge';
   return `
     <div class="person-stats">
-      <div><b>${counts.events}</b><span>Termine</span></div>
-      <div><b>${counts.reminders}</b><span>Erinnerungen</span></div>
-      <div><b>${counts.tasks}</b><span>Aufgaben</span></div>
+      ${tile('events', counts.events, 'Termine')}
+      ${tile('reminders', counts.reminders, 'Erinnerungen')}
+      ${tile('tasks', counts.tasks, 'Aufgaben')}
     </div>
-    <p class="muted small center">Die nächsten 14 Tage</p>
+    <div class="seg wide person-range">
+      ${PERSON_RANGES.map(([n, l]) => `<button class="${span === n ? 'on' : ''}" data-action="person-range" data-r="${n}">${l}</button>`).join('')}
+    </div>
+    ${f ? `<p class="muted small center">Nur ${what} · <button class="link" data-action="person-filter" data-f="${f}">alle zeigen</button></p>` : ''}
+    ${regular.length ? `<section><h2>Regelmäßig</h2><ul class="card list reg-list">${regular.join('')}</ul></section>` : ''}
     ${
       days.length
         ? days
@@ -809,7 +859,9 @@ function viewPerson() {
               </section>`
             )
             .join('')
-        : '<p class="empty center">Keine Einträge.</p>'
+        : regular.length
+          ? ''
+          : `<p class="empty center">Keine ${what} in diesem Zeitraum.</p>`
     }`;
 }
 
@@ -2626,7 +2678,17 @@ const actions = {
     closeSheet();
     toast(lines.length ? `${lines.length} ${lines.length === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` : 'Nichts ausgewählt');
   },
+  'person-filter': (d) => {
+    state.personFilter = state.personFilter === d.f ? null : d.f;
+    render();
+  },
+  'person-range': (d) => {
+    state.personRange = Number(d.r);
+    lsSet('fo-person-range', d.r);
+    render();
+  },
   'open-person': (d) => {
+    if (state.personId !== d.id) state.personFilter = null;
     if (state.view !== 'person') state.prevView = state.view;
     state.personId = d.id;
     state.view = 'person';
