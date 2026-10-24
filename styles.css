@@ -2880,3 +2880,48 @@ form.sheet .sheet-body {
 #toast.confirm:not(.show) {
   pointer-events: none;
 }
+
+/* Essen: ganzer Text mit Zeilenumbruch; beim Antippen normales Eingabefeld */
+.meal-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+.meal-field input {
+  width: 100%;
+}
+.meal-text {
+  display: none;
+  padding: 10px 4px;
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.meal-field.has-text:not(:focus-within) .meal-text {
+  display: block;
+}
+.meal-field.has-text:not(:focus-within) input {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  opacity: 0;
+}
+.week-meal .meal-text {
+  padding: 9px 4px;
+}
+
+/* Rezept / Einkaufsliste: dezente Textlinks unter dem Essen */
+.meal-actions {
+  gap: 14px;
+  margin: 6px 12px 0;
+}
+.meal-actions .link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 4px 0;
+}

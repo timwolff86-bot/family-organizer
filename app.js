@@ -1078,8 +1078,11 @@ function mealField(meal, day, placeholder, enter, cls) {
   return `
     <div class="${cls}">
       <span class="meal-icon">${r ? recipeEmoji(r) : '🍽️'}</span>
-      <input class="meal-input" ${cls.includes('card') ? 'id="meal-input"' : ''} data-day="${day}" list="recipe-list"
-        value="${esc(meal?.text || '')}" placeholder="${esc(placeholder)}" enterkeyhint="${enter}" autocomplete="off" />
+      <div class="meal-field ${meal?.text ? 'has-text' : ''}">
+        <span class="meal-text" aria-hidden="true">${esc(meal?.text || '')}</span>
+        <input class="meal-input" ${cls.includes('card') ? 'id="meal-input"' : ''} data-day="${day}" list="recipe-list"
+          value="${esc(meal?.text || '')}" placeholder="${esc(placeholder)}" enterkeyhint="${enter}" autocomplete="off" />
+      </div>
       <button class="icon-btn book" data-action="pick-recipe" data-day="${day}" aria-label="Aus dem Kochbuch wählen">📖</button>
     </div>`;
 }
@@ -3111,6 +3114,11 @@ document.addEventListener('input', (e) => {
     return;
   }
   if (el.form?.dataset.form === 'add-item' && el.name === 'name') renderSuggestions(el.value);
+  if (el.classList?.contains('meal-input')) {
+    const field = el.closest('.meal-field');
+    field.querySelector('.meal-text').textContent = el.value;
+    field.classList.toggle('has-text', !!el.value.trim());
+  }
 });
 
 // Essen speichern, sobald das Feld verlassen wird.
