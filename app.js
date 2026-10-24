@@ -5,6 +5,7 @@ import { RECIPE_CATEGORIES, SEED_RECIPES, STAPLES, recipeCategory } from './reci
 import { STATES, holidayOn, refreshSchoolHolidays, schoolHolidayOn } from './holidays.js';
 import { combineFilters, parseQuery, scoreFields } from './search.js';
 import { ic } from './icons.js';
+import * as push from './push.js';
 
 /* ================= Zustand ================= */
 
@@ -379,7 +380,7 @@ async function removeWithUndo(table, ids, label) {
 }
 
 // Spalte → Datenbank-Update, das sie anlegt (für eine verständliche Meldung)
-const COLUMN_UPDATES = { series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
+const COLUMN_UPDATES = { remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
 
 function fail(err) {
   console.error(err);
@@ -1536,6 +1537,67 @@ function itemForm(item) {
   );
 }
 
+/* ---------- Benachrichtigungen ---------- */
+
+// Eintrag dieses Geräts (gefunden über die Push-Adresse des Browsers)
+const pushRow = () => (state.pushEndpoint ? state.data.push_subscriptions?.find((p) => p.endpoint === state.pushEndpoint) : null);
+
+async function refreshPush() {
+  try {
+    state.pushEndpoint = (await push.current())?.endpoint || null;
+  } catch {
+    state.pushEndpoint = null;
+  }
+  // Gerät hat die Person gewechselt → Eintrag nachziehen
+  const row = pushRow();
+  if (row && state.me && row.member_id !== state.me) save('push_subscriptions', { id: row.id, member_id: state.me }, 'id', { quiet: true });
+  else render();
+}
+
+const LEAD_OPTIONS = [
+  [15, '15 Min. vorher'],
+  [30, '30 Min. vorher'],
+  [60, '1 Std. vorher'],
+  [120, '2 Std. vorher'],
+  [-2, 'am Vortag (18 Uhr)'],
+];
+
+function pushSection() {
+  const wrap = (inner) => `<section><h2>Benachrichtigungen</h2><div class="card pad push-card">${inner}</div></section>`;
+  if (!store.isCloud) return wrap('<p class="muted small">Nur mit gemeinsamem Speicher (Supabase) möglich.</p>');
+  if (state.data.missing?.includes('push_subscriptions'))
+    return wrap('<p class="muted small">Datenbank-Update nötig: bitte supabase/update-12.sql in Supabase ausführen.</p>');
+  if (!push.supported())
+    return wrap(
+      push.iosNeedsInstall()
+        ? '<p class="small">Auf dem iPhone gehen Benachrichtigungen nur in der installierten App: in Safari „Teilen“ → „Zum Home-Bildschirm“, dann die App dort öffnen und hier aktivieren.</p>'
+        : '<p class="muted small">Dieser Browser unterstützt keine Benachrichtigungen.</p>'
+    );
+  if (push.permission() === 'denied')
+    return wrap('<p class="small">Benachrichtigungen sind für diese App blockiert. Bitte in den Einstellungen des Handys erlauben und die App neu öffnen.</p>');
+  const row = pushRow();
+  if (!row)
+    return wrap(`
+      <p class="small">Push-Nachrichten für Erinnerungen, Termine und Aufgaben – nur auf diesem Gerät${meMember() ? ` und für ${esc(meMember().name)}` : ''}.</p>
+      <button class="btn primary wide" data-action="push-enable" ${state.me ? '' : 'disabled'}>${ic('bell')}Auf diesem Gerät aktivieren</button>
+      ${state.me ? '' : '<p class="muted small">Zuerst oben unter „Ich bin“ auswählen, wer du bist.</p>'}`);
+  const toggle = (k, label, hint) => `
+    <label class="check-line push-toggle"><input type="checkbox" data-change="push" name="${k}" ${row[k] ? 'checked' : ''} />
+      <span class="grow-col"><span>${label}</span><span class="muted small">${hint}</span></span></label>`;
+  return wrap(`
+    <p class="muted small with-ic push-on">${ic('check')}Aktiv auf diesem Gerät${meMember() ? ` für ${esc(meMember().name)}` : ''}</p>
+    ${toggle('reminders', 'Erinnerungen', 'zur eingetragenen Uhrzeit')}
+    ${toggle('events', 'Termine', 'mit Vorlauf, pro Termin änderbar')}
+    ${row.events ? `<label class="push-sub">Vorlauf für Termine<select data-change="push" name="lead">${LEAD_OPTIONS.map(
+      ([v, l]) => `<option value="${v}" ${Number(row.lead) === v ? 'selected' : ''}>${l}</option>`
+    ).join('')}</select></label>` : ''}
+    ${toggle('tasks', 'Aufgaben', 'einmal am Tag: deine offenen Aufgaben')}
+    <label class="push-sub">Uhrzeit für die Aufgaben-Übersicht<input type="time" data-change="push" name="daily_time" value="${esc(D.hm(row.daily_time) || '07:00')}" />
+      <span class="muted small">Gilt auch für Erinnerungen ohne Uhrzeit.</span></label>
+    <button class="btn ghost wide" data-action="push-test">Test-Nachricht senden</button>
+    <button class="link danger-link" data-action="push-disable">Auf diesem Gerät ausschalten</button>`);
+}
+
 function viewMehr() {
   const ms = members();
   const events = [...state.data.events]
@@ -1602,6 +1664,8 @@ function viewMehr() {
         <p class="muted small">Schulferien und Feiertage dieses Bundeslands werden im Kalender angezeigt (gilt für dieses Gerät).</p>
       </div>
     </section>
+
+    ${pushSection()}
 
     <section>
       <h2>Darstellung</h2>
@@ -2170,6 +2234,21 @@ function updateRepeatVisibility(form) {
   });
 }
 
+// Auswahl "Erinnern" im Terminformular (null = wie in den Einstellungen des Handys)
+const REMIND_OPTIONS = [
+  ['', 'wie eingestellt'],
+  ['-1', 'nicht erinnern'],
+  ['15', '15 Min. vorher'],
+  ['30', '30 Min. vorher'],
+  ['60', '1 Std. vorher'],
+  ['120', '2 Std. vorher'],
+  ['-2', 'am Vortag (18 Uhr)'],
+];
+const remindSelect = (v) =>
+  `<label>Push-Erinnerung<select name="remind">${REMIND_OPTIONS.map(
+    ([k, l]) => `<option value="${k}" ${String(v ?? '') === k ? 'selected' : ''}>${l}</option>`
+  ).join('')}</select></label>`;
+
 function eventForm(ev, day) {
   const isNew = !ev;
   ev ||= { date: day || state.date, member_ids: presetPeople() || [] };
@@ -2221,8 +2300,9 @@ function eventForm(ev, day) {
     </div>
     ${moreOptions(
       `<label>Wo?<input name="location" value="${esc(ev.location || '')}" /></label>
-       <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>`,
-      ev.location || ev.notes
+       <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>
+       ${store.isCloud && !state.data.missing?.includes('push_subscriptions') ? remindSelect(ev.remind) : ''}`,
+      ev.location || ev.notes || ev.remind != null
     )}`;
 
   const extra = isNew
@@ -2253,6 +2333,9 @@ function eventForm(ev, day) {
         location: f.get('location').trim() || null,
         notes: f.get('notes').trim() || null,
       };
+      // Push-Hinweis für diesen Termin (nur mitschicken, wenn gesetzt – sonst klappt Sichern auch ohne Update 12)
+      const remind = f.get('remind');
+      if (remind != null && (remind !== '' || ev.remind != null)) common.remind = remind === '' ? null : Number(remind);
       if (exception) {
         saveConfirm('events', { ...common, id: ev.id, date: f.get('date_once') || ev.date }, 'termin', false);
         closeSheet();
@@ -2269,7 +2352,7 @@ function eventForm(ev, day) {
         const moved = newDay !== day;
         const norm = (k, v) => (k.endsWith('_time') ? D.hm(v) || '' : v ?? '');
         const fieldsChanged =
-          ['title', 'start_time', 'end_time', 'location', 'notes'].some((k) => norm(k, common[k]) !== norm(k, ev[k])) ||
+          ['title', 'start_time', 'end_time', 'location', 'notes', 'remind'].some((k) => norm(k, common[k]) !== norm(k, ev[k])) ||
           !!common.all_day !== !!ev.all_day ||
           [...common.member_ids].sort().join() !== [...eventPeople(ev)].sort().join();
         if (!seriesChanged && !moved && !fieldsChanged) return closeSheet();
@@ -2756,6 +2839,46 @@ const actions = {
     window.scrollTo(0, 0);
     render();
   },
+  'push-enable': async () => {
+    try {
+      const sub = await push.subscribe();
+      state.pushEndpoint = sub.endpoint;
+      const kid = meMember()?.role === 'kind';
+      await save('push_subscriptions', { ...sub, member_id: state.me, reminders: true, events: true, tasks: true, lead: 30, daily_time: kid ? '15:00' : '07:00', device: push.deviceName() }, 'endpoint');
+      toast('Benachrichtigungen sind aktiv.');
+    } catch (e) {
+      console.error(e);
+      toast(e.code === 'denied' ? 'Ohne Erlaubnis geht es leider nicht. In den Handy-Einstellungen erlauben.' : 'Aktivieren hat nicht geklappt – bitte nochmal versuchen.');
+      render();
+    }
+  },
+  'push-disable': async () => {
+    const row = pushRow();
+    try {
+      await push.unsubscribe();
+    } catch (e) {
+      console.error(e);
+    }
+    state.pushEndpoint = null;
+    if (row) await del('push_subscriptions', row.id);
+    toast('Benachrichtigungen auf diesem Gerät ausgeschaltet.');
+  },
+  'push-test': async () => {
+    toast('Test-Nachricht wird gesendet …');
+    try {
+      await store.invokeFunction('push', { test: true, endpoint: state.pushEndpoint });
+      toast('Gesendet – sie sollte gleich erscheinen.');
+    } catch (e) {
+      console.error(e);
+      toast(
+        e.status === 404 && /Gerät/.test(e.message)
+          ? 'Dieses Gerät ist nicht angemeldet. Bitte aus- und wieder einschalten.'
+          : e.status === 404 || /Failed to send|fetch/i.test(e.message)
+            ? 'Die Versand-Funktion ist in Supabase noch nicht eingerichtet (siehe Anleitung).'
+            : `Senden fehlgeschlagen: ${e.message}`
+      );
+    }
+  },
   'goto-day': (d) => {
     state.date = d.day;
     state.view = 'heute';
@@ -2958,7 +3081,7 @@ const actions = {
     state.me = d.id;
     lsSet('fo-me', d.id);
     state.taskFilter = null;
-    render();
+    refreshPush();
   },
   'toggle-item': (d) => {
     const i = state.data.shopping_items.find((x) => x.id === d.id);
@@ -3122,6 +3245,13 @@ document.addEventListener('change', async (e) => {
     render();
     return;
   }
+  if (el.dataset.change === 'push') {
+    const row = pushRow();
+    if (!row) return;
+    const v = el.type === 'checkbox' ? el.checked : el.name === 'lead' ? Number(el.value) : el.value || '07:00';
+    save('push_subscriptions', { id: row.id, [el.name]: v });
+    return;
+  }
   if (el.dataset.change === 'land') {
     state.land = el.value;
     lsSet('fo-land', el.value);
@@ -3133,7 +3263,7 @@ document.addEventListener('change', async (e) => {
     state.me = el.value || null;
     lsSet('fo-me', state.me);
     state.taskFilter = null;
-    render();
+    refreshPush();
     return;
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
@@ -3411,6 +3541,7 @@ async function startData() {
   refreshSchoolHolidays(state.land).then((changed) => changed && render());
   store.subscribe(debounce(() => reload(), 400));
   render();
+  if (store.isCloud) refreshPush();
 }
 
 function debounce(fn, ms) {
@@ -3421,8 +3552,27 @@ function debounce(fn, ms) {
   };
 }
 
+function openDayFromPush(day) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return;
+  state.date = day;
+  state.view = 'heute';
+  closeSheet();
+  window.scrollTo(0, 0);
+}
+
 async function boot() {
+  const fromPush = new URLSearchParams(location.search).get('day');
+  if (fromPush) {
+    openDayFromPush(fromPush);
+    history.replaceState(null, '', location.pathname);
+  }
   if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.goto) {
+        openDayFromPush(e.data.goto);
+        if (state.data) render();
+      }
+    });
     navigator.serviceWorker
       .register('sw.js', { updateViaCache: 'none' })
       .then((reg) => {

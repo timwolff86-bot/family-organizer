@@ -15,6 +15,7 @@ export const TABLES = [
   'products',
   'recipes',
   'birthdays',
+  'push_subscriptions',
 ];
 
 // Tabellen mit vielen Einträgen pro Tag: nur die letzten 60 Tage + Zukunft laden.
@@ -59,6 +60,23 @@ export function onAuthChange(cb) {
 export async function signIn(email, password) {
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) throw error;
+}
+
+// Supabase-Funktion aufrufen (mit der Anmeldung des Nutzers)
+export async function invokeFunction(name, body) {
+  if (!sb) throw new Error('Nur mit gemeinsamem Speicher');
+  const { data, error } = await sb.functions.invoke(name, { body });
+  if (error) {
+    // Antwort der Funktion mitliefern, damit die App eine verständliche Meldung zeigen kann
+    let detail = null;
+    try {
+      detail = await error.context?.json();
+    } catch {}
+    const err = new Error(detail?.error || error.message);
+    err.status = error.context?.status;
+    throw err;
+  }
+  return data;
 }
 
 export async function signOut() {

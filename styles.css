@@ -3467,3 +3467,63 @@ details[open] > summary .sum-ic {
   display: inline;
   font-weight: 600;
 }
+
+/* Einstellungen: Benachrichtigungen */
+.push-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.push-card > p {
+  margin: 0 0 6px;
+}
+.push-on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.push-on > .ic {
+  color: var(--accent);
+}
+.push-toggle {
+  align-items: flex-start;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.push-toggle input {
+  margin-top: 3px;
+}
+.push-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px 34px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.push-sub .muted {
+  font-weight: 400;
+}
+.danger-link {
+  align-self: center;
+  margin-top: 10px;
+  color: var(--red);
+  font-size: 15px;
+}
+.push-card .push-toggle {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  font-size: 16px;
+}
+.push-card .push-toggle input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  accent-color: var(--accent);
+}
+.push-card .push-sub select,
+.push-card .push-sub input {
+  font-weight: 400;
+  color: var(--text);
+}
