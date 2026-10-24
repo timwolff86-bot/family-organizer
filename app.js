@@ -1301,7 +1301,7 @@ function openPanel(title, inner, right = '') {
       </div>
       <div class="sheet-body">${inner}</div>
     </div>`;
-  document.body.classList.add('sheet-open');
+  sheetOpened();
 }
 
 function recipeDetail(r) {
@@ -1625,6 +1625,100 @@ function itemForm(item) {
 }
 
 /* ---------- Benachrichtigungen ---------- */
+
+/* ---------- Zurück-Geste (Android) ----------
+   Die App führt einen eigenen Stapel (offene Fenster, vorherige Bildschirme).
+   Solange er nicht leer ist, liegt ein Platzhalter im Browser-Verlauf: Zurück
+   nimmt dann den obersten Schritt weg, statt die App zu verlassen. */
+const nav = { stack: [], guarded: false, ignore: 0 };
+// Scroll-Position stellt die App selbst wieder her (der Browser würde sie überschreiben)
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+const navSnap = () => ({ type: 'view', view: state.view, date: state.date, personId: state.personId, cal: state.cal, scroll: window.scrollY });
+const MAIN_TABS = ['heute', 'woche', 'kochbuch', 'einkauf', 'mehr'];
+
+function navSync() {
+  clearTimeout(nav.timer);
+  if (nav.stack.length) {
+    if (!nav.guarded) {
+      history.pushState({ fo: 'guard' }, '');
+      nav.guarded = true;
+    }
+  } else if (nav.guarded) {
+    // Platzhalter etwas verzögert entfernen (sonst bräuchte es zweimal Zurück zum Verlassen).
+    // Verzögert, weil oft direkt danach der nächste Schritt kommt (z. B. Fenster zu, Tag öffnen).
+    nav.timer = setTimeout(() => {
+      if (nav.stack.length || !nav.guarded) return;
+      nav.guarded = false;
+      nav.ignore++;
+      history.back();
+    }, 250);
+  }
+}
+// Vor dem Wechsel auf einen neuen Bildschirm: aktuellen merken
+function navPush() {
+  nav.stack.push(navSnap());
+  navSync();
+}
+function sheetOpened() {
+  const already = document.body.classList.contains('sheet-open');
+  document.body.classList.add('sheet-open');
+  if (!already) {
+    nav.stack.push({ type: 'sheet' });
+    navSync();
+  }
+}
+function navDrop(type) {
+  if (nav.stack[nav.stack.length - 1]?.type === type) nav.stack.pop();
+  navSync();
+}
+// Zurück-Knopf in der App: wie die Zurück-Geste
+function navBack() {
+  if (!nav.stack.length || nav.stack[nav.stack.length - 1].type !== 'view') return false;
+  restoreView(nav.stack.pop());
+  navSync();
+  return true;
+}
+// Reiterwechsel: Hauptreiter liegen alle direkt "über" Heute, Unterseiten werden gestapelt
+function navTab(tab) {
+  if (!MAIN_TABS.includes(tab)) {
+    navPush();
+    return false;
+  }
+  if (tab === 'heute') {
+    nav.stack = nav.stack.filter((x) => x.type === 'sheet');
+  } else if (MAIN_TABS.includes(state.view) && state.view !== 'heute' && nav.stack.length) {
+    // von Reiter zu Reiter: nur "zurück zu Heute" behalten
+    nav.stack = nav.stack.slice(0, 1);
+  } else if (state.view === 'heute') {
+    nav.stack = [navSnap()];
+  } else {
+    // aus einer Unterseite (Person, Geburtstage) auf einen Hauptreiter
+    const back = nav.stack.slice(0, 1);
+    nav.stack = back.length ? back : [navSnap()];
+  }
+  navSync();
+  return false;
+}
+function restoreView(snap) {
+  state.view = snap.view;
+  state.date = snap.date;
+  state.personId = snap.personId;
+  state.cal = snap.cal;
+  render();
+  window.scrollTo(0, snap.scroll || 0);
+  if (state.view === 'woche') updateListHeader();
+}
+window.addEventListener('popstate', () => {
+  if (nav.ignore) {
+    nav.ignore--;
+    return;
+  }
+  nav.guarded = false;
+  const top = nav.stack.pop();
+  if (top?.type === 'sheet') closeSheet({ fromBack: true });
+  else if (top) restoreView(top);
+  navSync();
+});
 
 // Eintrag dieses Geräts (gefunden über die Push-Adresse des Browsers)
 const pushRow = () => (state.pushEndpoint ? state.data.push_subscriptions?.find((p) => p.endpoint === state.pushEndpoint) : null);
@@ -2092,7 +2186,7 @@ function header() {
   if (state.view === 'geburtstage') {
     return `
       <header class="top sub">
-        <button class="icon-btn back" data-action="tab" data-tab="mehr" aria-label="Zurück">${ic('left')}<span>Einstellungen</span></button>
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Einstellungen</span></button>
         <span class="head-actions"><button class="icon-btn" data-action="new-birthday" aria-label="Geburtstag eintragen">${ic('plus')}</button></span>
       </header>
       <div class="sub-title"><h1>Geburtstage</h1></div>`;
@@ -2254,7 +2348,7 @@ function openSheet(title, inner, onSubmit, extraButtons = '', { compact = false 
       <div class="sheet-body">${inner}${extraButtons ? `<div class="sheet-extra">${extraButtons}</div>` : ''}</div>
       <div class="sheet-foot"><button type="submit" class="btn primary wide">Sichern</button></div>
     </form>`;
-  document.body.classList.add('sheet-open');
+  sheetOpened();
   fitToKeyboard();
   const first = $('#sheet-root input[name="title"], #sheet-root input[name="name"]');
   if (first && !first.value) setTimeout(() => first.focus(), 50);
@@ -2281,9 +2375,11 @@ document.addEventListener('focusin', (e) => {
   }, 300);
 });
 
-function closeSheet() {
+function closeSheet({ fromBack = false } = {}) {
+  const wasOpen = document.body.classList.contains('sheet-open');
   $('#sheet-root').innerHTML = '';
   document.body.classList.remove('sheet-open');
+  if (wasOpen && !fromBack) navDrop('sheet');
   sheetSubmit = null;
   render();
   // Eintrag wurde aus der Suche geöffnet → zurück zu den Suchergebnissen
@@ -2875,13 +2971,14 @@ function addChooser() {
       <button class="btn big" data-action="new-task">${ic('task')}Aufgabe</button>
       <button class="btn ghost wide" data-action="close-sheet">Abbrechen</button>
     </div>`;
-  document.body.classList.add('sheet-open');
+  sheetOpened();
 }
 
 /* ================= Ereignisse ================= */
 
 const actions = {
   tab: (d) => {
+    if (navTab(d.tab)) return;
     state.view = d.tab;
     // "Heute" unten führt immer zum heutigen Tag zurück
     if (d.tab === 'heute') state.date = D.todayKey();
@@ -2996,6 +3093,7 @@ const actions = {
     }
   },
   'goto-day': (d) => {
+    if (state.view !== 'heute') navPush();
     state.date = d.day;
     state.view = 'heute';
     window.scrollTo(0, 0);
@@ -3101,14 +3199,18 @@ const actions = {
   },
   'open-person': (d) => {
     if (state.personId !== d.id) state.personFilter = null;
-    if (state.view !== 'person') state.prevView = state.view;
+    if (state.view !== 'person') {
+      state.prevView = state.view;
+      navPush();
+    }
     state.personId = d.id;
     state.view = 'person';
     window.scrollTo(0, 0);
     render();
   },
   back: () => {
-    state.view = state.prevView || 'heute';
+    if (navBack()) return;
+    state.view = state.view === 'geburtstage' ? 'mehr' : state.prevView || 'heute';
     window.scrollTo(0, 0);
     render();
   },
@@ -3150,6 +3252,7 @@ const actions = {
   'search-goto': (d) => {
     state.searchBack = false;
     closeSheet();
+    navPush(); // Zurück führt zum vorherigen Bildschirm
     state.view = 'heute';
     state.date = d.day;
     window.scrollTo(0, 0);
@@ -3597,6 +3700,8 @@ document.addEventListener('visibilitychange', () => {
     state.date = D.todayKey();
     listReset();
     state.view = 'heute';
+    nav.stack = [];
+    navSync();
   }
   state.hiddenAt = null;
   if (!store.isCloud || state.session) reload();
