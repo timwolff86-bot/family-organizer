@@ -2642,3 +2642,36 @@ form.sheet .sheet-body {
 .sheet-head .link {
   min-width: 0;
 }
+
+/* Ausgefallene Termine auch in Woche und Monat ausgegraut */
+.wline.ev-off .wl-time,
+.wline.ev-off .wl-title,
+.ag-event.cancelled .ag-time {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.wline.ev-off {
+  opacity: 0.8;
+}
+.wline.ev-off .chip,
+.ag-event.cancelled .chip {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+.ag-event.cancelled {
+  background: color-mix(in srgb, var(--line) 45%, var(--bg));
+  border-color: transparent;
+  box-shadow: none;
+}
+.ag-event.cancelled .ag-title {
+  font-weight: 500;
+}
+.cancel-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  display: inline-block;
+}

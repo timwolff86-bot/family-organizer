@@ -833,9 +833,9 @@ function viewWoche() {
               events.length
                 ? events
                     .map(
-                      (o) => `<div class="wline ${o.cancelled ? 'cancelled' : ''}">
-                        ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
-                        ${esc(o.ev.title)}${dayPill(o)} ${chips(eventPeople(o.ev))}
+                      (o) => `<div class="wline ${o.cancelled ? 'ev-off' : ''}">
+                        ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted wl-time">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
+                        <span class="wl-title">${esc(o.ev.title)}</span>${dayPill(o)} ${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}
                       </div>`
                     )
                     .join('')
@@ -961,7 +961,7 @@ function monthAgenda(day) {
           (o) => `<button class="card ag-event ${o.cancelled ? 'cancelled' : ''}" data-action="edit-event" data-id="${o.ev.id}" data-day="${day}">
             <span class="ag-time">${esc(o.time)}</span>
             <span class="ag-title">${esc(o.ev.title)}${dayPill(o)}</span>
-            <span class="meta">${chips(eventPeople(o.ev))}</span>
+            <span class="meta">${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}</span>
           </button>`
         )
         .join('')}
