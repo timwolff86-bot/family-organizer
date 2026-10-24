@@ -3752,3 +3752,12 @@ details[open] > summary .sum-ic {
   font-size: 14px;
   font-weight: 400;
 }
+/* Feiertag in der Liste: dezent wie Geburtstage */
+.lrow.hol .lr-title {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--red);
+}
+.lrow.hol .lr-title {
+  color: var(--text);
+}
