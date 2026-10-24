@@ -377,9 +377,23 @@ async function removeWithUndo(table, ids, label) {
   }
 }
 
+// Spalte → Datenbank-Update, das sie anlegt (für eine verständliche Meldung)
+const COLUMN_UPDATES = { series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
+
 function fail(err) {
   console.error(err);
-  toast('Speichern fehlgeschlagen – bitte nochmal versuchen.');
+  // Fehlende Spalte: Datenbank-Update wurde in Supabase noch nicht ausgeführt
+  const col = String(err?.message || '').match(/'(\w+)' column|column "?(\w+)"? does not exist/);
+  const name = col && (col[1] || col[2]);
+  if (err?.code === 'PGRST204' || err?.code === '42703') {
+    const nr = COLUMN_UPDATES[name];
+    toast(`Nicht gespeichert: Die Datenbank kennt „${name || '?'}“ noch nicht. In Supabase ${nr ? `supabase/update-${nr}.sql` : 'das neueste Update'} ausführen.`, {
+      label: 'OK',
+      run: () => {},
+    });
+  } else {
+    toast(`Speichern fehlgeschlagen – bitte nochmal versuchen.${err?.message ? ` (${err.message})` : ''}`);
+  }
   reload();
 }
 
