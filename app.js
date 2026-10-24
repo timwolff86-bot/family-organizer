@@ -28,7 +28,7 @@ const state = {
   data: null,
   session: null,
   me: lsGet('fo-me'),
-  taskFilter: lsGet('fo-filter') === 'meine' ? 'meine' : 'alle', // alle | meine
+  taskFilter: null, // alle | meine – null = Voreinstellung nach Person (siehe taskFilter())
   hiddenAt: null,
   cal: lsGet('fo-cal') === 'monat' ? 'monat' : 'woche', // Kalender-Ansicht
   monthSel: D.todayKey(), // im Monat ausgewählter Tag
@@ -580,6 +580,10 @@ const birthdayText = (b, day) => {
 const doneKey = (t) => (t.done_at ? D.toKey(new Date(t.done_at)) : null);
 const isReminder = (t) => t.kind === 'erinnerung';
 
+// Aufgaben auf "Heute": Kinder sehen beim Start nur ihre eigenen, Erwachsene alle
+const taskFilter = () => state.taskFilter || (meMember()?.role === 'kind' ? 'meine' : 'alle');
+lsSet('fo-filter', null); // frühere, gespeicherte Auswahl aufräumen
+
 // Erinnerungen sind persönlich: sichtbar für die Personen, für die sie sind,
 // und für den, der sie angelegt hat. Ohne Personen = für alle.
 const canSeeReminder = (t) =>
@@ -646,7 +650,7 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
     }
   }
   let list = out;
-  if (filter && state.taskFilter === 'meine') list = list.filter((x) => peopleOf(x.t).includes(state.me));
+  if (filter && taskFilter() === 'meine') list = list.filter((x) => peopleOf(x.t).includes(state.me));
   return list.sort(
     (a, b) =>
       a.done - b.done ||
@@ -767,12 +771,12 @@ function viewHeute() {
         <h2>Aufgaben</h2>
         <div class="seg">
           ${filters
-            .map(([k, l]) => `<button class="${state.taskFilter === k ? 'on' : ''}" data-action="filter" data-filter="${k}">${l}</button>`)
+            .map(([k, l]) => `<button class="${taskFilter() === k ? 'on' : ''}" data-action="filter" data-filter="${k}">${l}</button>`)
             .join('')}
         </div>
       </div>
       ${
-        state.taskFilter === 'meine' && !meMember()
+        taskFilter() === 'meine' && !meMember()
           ? '<p class="empty">Unter „Einstellungen“ auswählen, wer du bist.</p>'
           : tasks.length
             ? `<ul class="tasks card">${tasks.map(taskRow).join('')}</ul>`
@@ -2691,8 +2695,7 @@ const actions = {
     render();
   },
   filter: (d) => {
-    state.taskFilter = d.filter;
-    lsSet('fo-filter', d.filter);
+    state.taskFilter = d.filter; // gilt bis zum nächsten App-Start
     render();
   },
   'toggle-task': (d) => toggleTask(d.id, d.day),
@@ -2886,6 +2889,7 @@ const actions = {
   'set-me': (d) => {
     state.me = d.id;
     lsSet('fo-me', d.id);
+    state.taskFilter = null;
     render();
   },
   'toggle-item': (d) => {
@@ -3060,6 +3064,7 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.change === 'me') {
     state.me = el.value || null;
     lsSet('fo-me', state.me);
+    state.taskFilter = null;
     render();
     return;
   }
