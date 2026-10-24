@@ -4,6 +4,7 @@ import { CATEGORIES, QUICK_DEFAULTS, categoryOf, classify, normalize, seedProduc
 import { RECIPE_CATEGORIES, SEED_RECIPES, STAPLES, recipeCategory } from './recipes.js';
 import { STATES, holidayOn, refreshSchoolHolidays, schoolHolidayOn } from './holidays.js';
 import { combineFilters, parseQuery, scoreFields } from './search.js';
+import { ic } from './icons.js';
 
 /* ================= Zustand ================= */
 
@@ -230,7 +231,7 @@ function confirmToast(head, lines, onEdit) {
   el.className = 'confirm';
   el.innerHTML = `
     <div class="cf-text">
-      <div class="cf-head">✓ ${esc(head)}</div>
+      <div class="cf-head">${ic('check')} ${esc(head)}</div>
       ${lines.filter(Boolean).map((l, i) => `<div class="${i ? 'cf-sub' : 'cf-main'}">${esc(l)}</div>`).join('')}
     </div>
     <button type="button" class="toast-btn">Bearbeiten</button>
@@ -289,13 +290,13 @@ function confirmSaved(kind, id, isNew) {
     const people = namesOf(eventPeople(ev));
     confirmToast(
       `Termin ${verb}`,
-      [[ev.title, when, time].filter(Boolean).join(' · '), [ev.location ? `📍 ${ev.location}` : '', people ? `für ${people}` : ''].filter(Boolean).join(' · ')],
+      [[ev.title, when, time].filter(Boolean).join(' · '), [ev.location ? ev.location : '', people ? `für ${people}` : ''].filter(Boolean).join(' · ')],
       () => eventForm(state.data.events.find((x) => x.id === id), weekly ? null : ev.date)
     );
   } else if (kind === 'erinnerung' || kind === 'aufgabe') {
     const t = find('tasks');
     if (!t) return;
-    const when = isRecurring(t) ? `↻ ${rhythmText(t)}` : t.due_date ? D.formatShort(t.due_date) : 'ohne Datum';
+    const when = isRecurring(t) ? rhythmText(t) : t.due_date ? D.formatShort(t.due_date) : 'ohne Datum';
     const people = namesOf(peopleOf(t));
     confirmToast(
       `${kind === 'erinnerung' ? 'Erinnerung' : 'Aufgabe'} ${verb}`,
@@ -536,9 +537,9 @@ function eventCard(o) {
                 ? `<div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>`
                 : ''
           }
-          <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}${dayPill(o)}${changedTag(o)}</div>
-          <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
-          ${o.multi && !o.cancelled ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
+          <div class="title">${esc(ev.title)} ${o.weekly ? `<span class="muted rep">${ic('repeat')}</span>` : ''}${dayPill(o)}${changedTag(o)}</div>
+          <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted with-ic">${ic('pin')}${esc(ev.location)}</span>` : ''}</div>
+          ${o.multi && !o.cancelled ? `<div class="muted small with-ic">${ic('range')}${esc(rangeLabel(o))}</div>` : ''}
           ${ev.notes && !o.cancelled ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
         </div>
       </button>
@@ -679,19 +680,19 @@ function taskRow(x) {
   const { t } = x;
   const by = x.done && t.done_by && member(t.done_by);
   const badges = [
-    isReminder(t) && state.view === 'person' ? '<span class="tag time">🔔</span>' : '',
-    t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">🕑 ${D.hm(t.due_time)}</span>` : '',
+    isReminder(t) && state.view === 'person' ? `<span class="tag time">${ic('bell')}</span>` : '',
+    t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">${ic('clock')}${D.hm(t.due_time)}</span>` : '',
     x.overdue ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
-    x.recurring ? '<span class="muted small">↻</span>' : '',
+    x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : '',
   ].join('');
   return `
     <li class="task ${x.done ? 'done' : ''}">
       <button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">
-        ${x.done ? '✓' : ''}
+        ${x.done ? ic('check') : ''}
       </button>
       <button class="task-main" data-action="edit-task" data-id="${t.id}">
         <span class="title">${esc(t.title)}</span>
-        <span class="meta">${badges}${chips(peopleOf(t))}${by ? `<span class="muted small">✓ ${esc(by.name)}</span>` : ''}</span>
+        <span class="meta">${badges}${chips(peopleOf(t))}${by ? `<span class="muted small with-ic">${ic('check')}${esc(by.name)}</span>` : ''}</span>
       </button>
     </li>`;
 }
@@ -711,22 +712,11 @@ function viewHeute() {
     ['meine', 'Meine'],
   ];
   const allTasks = tasksOn(day, { filter: false });
-  const activeEvents = events.filter((o) => !o.cancelled);
-  const openReminders = reminders.filter((x) => !x.done).length;
-  const openTasks = allTasks.filter((x) => !x.done).length;
-  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const bdays = birthdaysOn(day);
   const holiday = holidayOn(day, state.land);
   const ferien = schoolHolidayOn(day, state.land);
-  const summary = [
-    bdays.length ? plural(bdays.length, 'Geburtstag', 'Geburtstage') : '',
-    activeEvents.length ? plural(activeEvents.length, 'Termin', 'Termine') : '',
-    openReminders ? plural(openReminders, 'Erinnerung', 'Erinnerungen') : '',
-    openTasks ? plural(openTasks, 'Aufgabe', 'Aufgaben') : '',
-  ].filter(Boolean);
 
   return `
-    ${summary.length ? `<p class="day-summary">${summary.join(' · ')}</p>` : ''}
     <div class="family-strip">
       ${[...members()]
         .sort((a, b) => (b.id === state.me) - (a.id === state.me)) // ich zuerst
@@ -751,8 +741,8 @@ function viewHeute() {
     ${
       reminders.length
         ? `<section>
-            <div class="section-head"><h2>🔔 Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
-            <ul class="tasks card reminders">${reminders.map(taskRow).join('')}</ul>
+            <h2>Erinnerungen</h2>
+            <ul class="tasks card">${reminders.map(taskRow).join('')}</ul>
           </section>`
         : ''
     }
@@ -764,8 +754,9 @@ function viewHeute() {
       ${
         mealRecipe(meal)
           ? `<div class="meal-actions">
-              <button class="link" data-action="open-recipe" data-id="${meal.recipe_id}">📖 Rezept ansehen</button>
-              <button class="link" data-action="ingredients" data-ids="${meal.recipe_id}">🛒 Zutaten auf die Liste</button>
+              <button class="link" data-action="open-recipe" data-id="${meal.recipe_id}">Rezept</button>
+              <button class="link" data-action="ingredients" data-ids="${meal.recipe_id}">Zutaten einkaufen</button>
+              <button class="link" data-action="pick-recipe" data-day="${day}">Ändern</button>
             </div>`
           : ''
       }
@@ -843,7 +834,7 @@ function viewPerson() {
       const time = timeLabel({ ev, day: today, multi: false });
       return `<li><button class="reg-row" data-action="edit-event" data-id="${ev.id}">
         <span class="reg-when">${esc(rhythmShort(ev).replace('jeden ', ''))}</span>
-        <span class="grow-col"><span class="title">📅 ${esc(ev.title)}</span>${time ? `<span class="muted small">${esc(time)}</span>` : ''}</span>
+        <span class="grow-col"><span class="title with-ic">${ic('calendar')}${esc(ev.title)}</span>${time ? `<span class="muted small">${esc(time)}</span>` : ''}</span>
       </button></li>`;
     }),
     ...[...seriesTasks.values()]
@@ -851,7 +842,7 @@ function viewPerson() {
       .map(
         (t) => `<li><button class="reg-row" data-action="edit-task" data-id="${t.id}">
           <span class="reg-when">${esc(rhythmText(t))}</span>
-          <span class="grow-col"><span class="title">${isReminder(t) ? '🔔' : '☑️'} ${esc(t.title)}</span>${t.due_time ? `<span class="muted small">${D.hm(t.due_time)}</span>` : ''}</span>
+          <span class="grow-col"><span class="title with-ic">${ic(isReminder(t) ? 'bell' : 'task')}${esc(t.title)}</span>${t.due_time ? `<span class="muted small">${D.hm(t.due_time)}</span>` : ''}</span>
         </button></li>`
       ),
   ];
@@ -900,12 +891,13 @@ function viewWoche() {
       const bdays = birthdaysOn(day);
       const holiday = holidayOn(day, state.land);
       const meal = state.data.meals.find((m) => m.date === day);
+      const empty = !events.length && !reminders.length && !open && !bdays.length && !holiday;
       return `
-        <div class="card week-day ${day === today ? 'today' : ''}">
-          <button class="week-top" data-action="goto-day" data-day="${day}">
+        <div class="card week-day ${day === today ? 'today' : ''} ${empty ? 'free' : ''} ${D.isoWeekday(day) > 5 ? 'we' : ''}">
+          <button class="week-top" data-action="goto-day" data-day="${day}" aria-label="${esc(D.formatLong(day))} öffnen">
           <div class="wd">
             <strong>${D.WD_SHORT[D.isoWeekday(day) - 1]}</strong>
-            <span>${D.fromKey(day).getDate()}.</span>
+            <span>${D.fromKey(day).getDate()}</span>
           </div>
           <div class="body">
             ${holiday ? `<div class="wline hol">🎉 ${esc(holiday.name)}</div>` : ''}
@@ -920,19 +912,17 @@ function viewWoche() {
                       </div>`
                     )
                     .join('')
-                : bdays.length || holiday
-                  ? ''
-                  : '<div class="muted small">Keine Termine</div>'
+                : ''
             }
             ${reminders
               .map(
-                (x) => `<div class="wline small ${x.done ? 'cancelled' : ''}">🔔 ${x.t.due_time ? `${D.hm(x.t.due_time)} ` : ''}${esc(x.t.title)} ${chips(peopleOf(x.t))}</div>`
+                (x) => `<div class="wline small with-ic ${x.done ? 'cancelled' : ''}">${ic('bell')}${x.t.due_time ? `${D.hm(x.t.due_time)} ` : ''}${esc(x.t.title)} ${chips(peopleOf(x.t))}</div>`
               )
               .join('')}
-            ${open ? `<div class="wline small muted">☐ ${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
+            ${open ? `<div class="wline small muted with-ic">${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}</div>` : ''}
           </div>
           </button>
-          ${mealField(meal, day, 'Essen eintragen', 'next', 'week-meal')}
+          ${mealField(meal, day, 'Essen', 'next', 'week-meal')}
         </div>`;
     })
     .join('');
@@ -972,7 +962,7 @@ function viewMonat() {
             const ev = l.find((e) => e.date <= day && e.end_date >= day);
             const off = !ev || state.data.event_occurrences.some((o) => o.event_id === ev.id && o.date === day && o.cancelled);
             if (off) return '<i></i>';
-            const c = member(eventPeople(ev)[0])?.color || 'var(--muted)';
+            const c = member(eventPeople(ev)[0])?.color || 'var(--accent)';
             return `<i class="on ${ev.date === day ? 'start' : ''} ${ev.end_date === day ? 'end' : ''}" style="--c:${esc(c)}"></i>`;
           })
           .join('')}</span>`
@@ -1012,7 +1002,10 @@ function viewMonat() {
         )
         .join('')}
     </div>`;
-  return grid + monthAgenda(sel);
+  const legend = `<div class="m-legend" aria-hidden="true">
+      <span><i class="lg-ev"></i>Termin</span><span><i class="dot-task"></i>Aufgabe</span><span><i class="dot-bd"></i>Geburtstag</span>
+    </div>`;
+  return grid + legend + monthAgenda(sel);
 }
 
 // Einträge eines Tages, jeder direkt antippbar
@@ -1034,23 +1027,15 @@ function monthAgenda(day) {
     <section class="agenda">
       <div class="section-head">
         <h2>${esc(D.formatLong(day))}</h2>
-        <button class="link" data-action="goto-day" data-day="${day}">Tag öffnen ›</button>
+        <button class="link" data-action="goto-day" data-day="${day}">Tag öffnen${ic('right')}</button>
       </div>
       ${notes}
-      ${events
-        .map(
-          (o) => `<button class="card ag-event ${o.cancelled ? 'cancelled' : ''}" data-action="edit-event" data-id="${o.ev.id}" data-day="${day}">
-            <span class="ag-time">${esc(o.time)}</span>
-            <span class="ag-title">${esc(o.ev.title)}${dayPill(o)}${changedTag(o)}</span>
-            <span class="meta">${chips(eventPeople(o.ev))}${o.cancelled ? '<span class="cancel-tag">fällt aus</span>' : ''}</span>
-          </button>`
-        )
-        .join('')}
+      ${events.map(eventCard).join('')}
       ${items.length ? `<ul class="tasks card">${items.map(taskRow).join('')}</ul>` : ''}
       ${
         meal?.text
           ? `<button class="card ag-event" data-action="${meal.recipe_id ? 'open-recipe' : 'pick-recipe'}" data-id="${meal.recipe_id || ''}" data-day="${day}">
-              <span class="ag-time">🍽️</span><span class="ag-title">${esc(meal.text)}</span></button>`
+              <span class="ag-time">${ic('meal')}</span><span class="ag-title">${esc(meal.text)}</span></button>`
           : ''
       }
       ${empty ? '<p class="empty">Nichts eingetragen.</p>' : ''}
@@ -1063,8 +1048,8 @@ function weekIngredientsButton() {
     .map((day) => mealRecipe(state.data.meals.find((m) => m.date === day))?.id)
     .filter(Boolean);
   if (!ids.length) return '';
-  return `<button class="btn ghost wide week-shop" data-action="ingredients" data-ids="${ids.join(',')}">
-    🛒 Zutaten für ${ids.length} ${ids.length === 1 ? 'Gericht' : 'Gerichte'} dieser Woche auf die Liste</button>`;
+  return `<button class="link week-shop" data-action="ingredients" data-ids="${ids.join(',')}">
+    ${ic('einkauf')}Zutaten für ${ids.length} ${ids.length === 1 ? 'Gericht' : 'Gerichte'} einkaufen</button>`;
 }
 
 /* ================= Essen & Kochbuch ================= */
@@ -1077,13 +1062,13 @@ function mealField(meal, day, placeholder, enter, cls) {
   const r = mealRecipe(meal);
   return `
     <div class="${cls}">
-      <span class="meal-icon">${r ? recipeEmoji(r) : '🍽️'}</span>
+      <span class="meal-icon ${r ? '' : 'empty'}">${r ? recipeEmoji(r) : ic('meal')}</span>
       <div class="meal-field ${meal?.text ? 'has-text' : ''}">
         <span class="meal-text" aria-hidden="true">${esc(meal?.text || '')}</span>
         <input class="meal-input" ${cls.includes('card') ? 'id="meal-input"' : ''} data-day="${day}" list="recipe-list"
           value="${esc(meal?.text || '')}" placeholder="${esc(placeholder)}" enterkeyhint="${enter}" autocomplete="off" />
       </div>
-      <button class="icon-btn book" data-action="pick-recipe" data-day="${day}" aria-label="Aus dem Kochbuch wählen">📖</button>
+      ${r && cls.includes('card') ? '' : `<button class="icon-btn book" data-action="pick-recipe" data-day="${day}" aria-label="Aus dem Kochbuch wählen">${ic('kochbuch')}</button>`}
     </div>`;
 }
 
@@ -1099,7 +1084,7 @@ const isStaple = (line) => {
 };
 
 const recipeMeta = (r) =>
-  [r.minutes ? `⏱ ${r.minutes} Min.` : '', r.servings ? `👥 ${r.servings}` : '', recipeCategory(r.category).label]
+  [r.minutes ? `${r.minutes} Min.` : '', r.servings ? `${r.servings} Pers.` : '', recipeCategory(r.category).label]
     .filter(Boolean)
     .join(' · ');
 
@@ -1108,7 +1093,7 @@ function recipeRow(r, action = 'open-recipe', extra = '') {
     <li><button class="recipe-row" data-action="${action}" data-id="${r.id}" ${extra} data-search="${esc(r.title.toLowerCase())}">
       <span class="recipe-emoji">${recipeEmoji(r)}</span>
       <span class="grow-col">
-        <span class="title">${esc(r.title)} ${r.favorite ? '⭐' : ''}</span>
+        <span class="title">${esc(r.title)}${r.favorite ? `<span class="fav">${ic('star', 'fill')}</span>` : ''}</span>
         <span class="muted small">${esc(recipeMeta(r))}</span>
       </span>
     </button></li>`;
@@ -1121,8 +1106,8 @@ function viewKochbuch() {
   const f = state.recipeFilter || 'alle';
   const filters = [
     ['alle', 'Alle'],
-    ['fav', '⭐ Favoriten'],
-    ['eigene', '✍️ Eigene'],
+    ['fav', `${ic('star')}Favoriten`],
+    ['eigene', `${ic('pencil')}Eigene`],
     ...RECIPE_CATEGORIES.map((c) => [c.id, `${c.emoji} ${c.label}`]),
   ];
   const list = sortedRecipes().filter((r) =>
@@ -1131,7 +1116,7 @@ function viewKochbuch() {
   return `
     <div class="card add-item">
       <input type="search" id="recipe-search" placeholder="Gericht suchen …" autocomplete="off" />
-      <button class="btn primary" data-action="new-recipe" aria-label="Eigenes Gericht">+</button>
+      <button class="btn primary" data-action="new-recipe" aria-label="Eigenes Gericht anlegen">${ic('plus')}</button>
     </div>
     <div class="chip-row">${filters
       .map(([k, l]) => `<button class="filter-chip ${f === k ? 'on' : ''}" data-action="recipe-filter" data-filter="${k}">${l}</button>`)
@@ -1139,9 +1124,8 @@ function viewKochbuch() {
     ${
       list.length
         ? `<ul class="card list recipes" id="recipe-list-ul">${list.map((r) => recipeRow(r)).join('')}</ul>`
-        : `<p class="empty">${f === 'eigene' ? 'Noch keine eigenen Gerichte – mit ＋ anlegen.' : 'Keine Gerichte gefunden.'}</p>`
-    }
-    <button class="btn ghost wide" data-action="new-recipe">✍️ Eigenes Gericht anlegen</button>`;
+        : `<p class="empty">${f === 'eigene' ? 'Noch keine eigenen Gerichte – oben mit + anlegen.' : 'Keine Gerichte gefunden.'}</p>`
+    }`;
 }
 
 // Eigene Sheets ohne "Sichern" (Detail, Auswahl, Zutaten)
@@ -1169,19 +1153,18 @@ function recipeDetail(r) {
       <span class="recipe-emoji big">${recipeEmoji(r)}</span>
       <div>
         <div class="muted small">${esc(recipeMeta(r))}</div>
-        <button class="link" data-action="toggle-fav" data-id="${r.id}">${r.favorite ? '⭐ Favorit' : '☆ Als Favorit merken'}</button>
+        <button class="link" data-action="toggle-fav" data-id="${r.id}">${r.favorite ? `${ic('star', 'fill')}Favorit` : `${ic('star')}Als Favorit merken`}</button>
       </div>
     </div>
 
     <div class="plan-row card">
-      <span>📅</span>
       <input type="date" id="plan-date" value="${state.date}" />
       <button class="btn primary" data-action="plan-recipe" data-id="${r.id}">Einplanen</button>
     </div>
 
     <h3>Zutaten <span class="muted small">(für ${r.servings || 4} Personen)</span></h3>
     ${ingredientChecklist([r])}
-    <button class="btn primary wide" data-action="add-ingredients">🛒 Ausgewählte auf die Einkaufsliste</button>
+    <button class="btn primary wide" data-action="add-ingredients">${ic('einkauf')}Ausgewählte auf die Einkaufsliste</button>
 
     ${steps.length ? `<h3>Zubereitung</h3><ol class="steps">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}`,
     `<button class="link strong" data-action="edit-recipe" data-id="${r.id}">Bearbeiten</button>`
@@ -1218,7 +1201,7 @@ function ingredientsPanel(ids) {
   openPanel(
     'Zutaten einkaufen',
     `${ingredientChecklist(recipes)}
-     <button class="btn primary wide" data-action="add-ingredients">🛒 Ausgewählte auf die Einkaufsliste</button>`
+     <button class="btn primary wide" data-action="add-ingredients">${ic('einkauf')}Ausgewählte auf die Einkaufsliste</button>`
   );
 }
 
@@ -1230,7 +1213,7 @@ function recipePicker(day) {
     <ul class="card list recipes" id="recipe-list-ul">
       ${sortedRecipes().map((r) => recipeRow(r, 'choose-recipe', `data-day="${day}"`)).join('')}
     </ul>
-    <button class="btn ghost wide" data-action="new-recipe">✍️ Neues Gericht anlegen</button>
+    <button class="btn ghost wide" data-action="new-recipe">${ic('plus')}Neues Gericht anlegen</button>
     ${state.data.meals.find((m) => m.date === day)?.text ? `<button class="btn danger wide" data-action="clear-meal" data-day="${day}">Essen für diesen Tag entfernen</button>` : ''}`
   );
 }
@@ -1260,7 +1243,7 @@ function recipeForm(r) {
         <label>Dauer (Min.)<input type="number" name="minutes" min="0" inputmode="numeric" value="${esc(r.minutes ?? '')}" /></label>
         <label>Personen<input type="number" name="servings" min="1" inputmode="numeric" value="${esc(r.servings ?? '')}" /></label>
       </div>
-      <label class="check-line"><input type="checkbox" name="favorite" ${r.favorite ? 'checked' : ''}/> ⭐ Favorit</label>`,
+      <label class="check-line"><input type="checkbox" name="favorite" ${r.favorite ? 'checked' : ''}/> Favorit</label>`,
       !isNew && r.own
     )}`;
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-recipe" data-id="${r.id}">Gericht löschen</button>`;
@@ -1376,7 +1359,7 @@ function renderSuggestions(text) {
     list
       .map(
         (p) => `<button type="button" class="suggest-row" data-action="suggest-add" data-name="${esc(p.name)}">
-          <span>${categoryOf(p.category).icon}</span><span class="grow">${esc(p.name)}</span><span class="muted small">＋</span></button>`
+          <span>${categoryOf(p.category).icon}</span><span class="grow">${esc(p.name)}</span><span class="muted">${ic('plus')}</span></button>`
       )
       .join('');
 }
@@ -1398,16 +1381,16 @@ function viewEinkauf() {
     const open = list.filter((i) => !i.done).length;
     return `
       <section>
-        <h2 class="cat-head"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted small">${open || '✓'}</span></h2>
+        <h2 class="cat-head"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted small">${open || ic('check')}</span></h2>
         <ul class="card shop-list" data-longpress="item">
           ${list
             .map(
               (i) => `<li class="${i.done ? 'done' : ''}">
-                <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? '✓' : ''}</button>
+                <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? ic('check') : ''}</button>
                 <span class="name" data-action="toggle-item" data-id="${i.id}">${esc(i.name)}${
                   i.amount ? ` <span class="amount">${esc(i.amount)}</span>` : ''
                 }${i.note ? `<span class="item-note">${esc(i.note)}</span>` : ''}</span>
-                <button class="icon-btn" data-action="edit-item" data-id="${i.id}" aria-label="Kategorie ändern oder löschen">⋯</button>
+                <button class="icon-btn" data-action="edit-item" data-id="${i.id}" aria-label="Menge, Notiz oder Kategorie ändern">${ic('more')}</button>
               </li>`
             )
             .join('')}
@@ -1421,23 +1404,21 @@ function viewEinkauf() {
     ${state.data.missing?.includes('products') ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-2.sql in Supabase ausführen.</div>' : ''}
     <form class="card add-item" data-form="add-item">
       <input name="name" placeholder="Was fehlt? z. B. 2 kg Äpfel" autocomplete="off" autocorrect="off" enterkeyhint="done" required />
-      <button class="btn primary" type="submit" aria-label="Hinzufügen">+</button>
+      <button class="btn primary" type="submit" aria-label="Hinzufügen">${ic('plus')}</button>
     </form>
     <div class="suggest" id="suggest"></div>
     ${groups || '<p class="empty">Die Liste ist leer.</p>'}
-    ${items.length ? '<p class="muted small center longpress-hint">Lange drücken: Menge oder Notiz ergänzen</p>' : ''}
     ${
       quick.length
         ? `<section><h2>Häufig gekauft</h2><div class="quick">${quick
             .map(
-              (q) => `<button class="quick-chip" data-action="quick-add" data-name="${esc(q.name)}">
-                ${categoryOf(q.category).icon} ${esc(q.name)}</button>`
+              (q) => `<button class="quick-chip" data-action="quick-add" data-name="${esc(q.name)}">${ic('plus')}${esc(q.name)}</button>`
             )
             .join('')}</div></section>`
         : ''
     }
     <div class="shop-actions">
-      ${anyOpen ? '<button class="btn ghost" data-action="copy-list">📋 Liste kopieren</button>' : ''}
+      ${anyOpen ? `<button class="btn ghost" data-action="copy-list">${ic('copy')}Liste kopieren</button>` : ''}
       ${items.some((i) => i.done) ? '<button class="btn ghost" data-action="clear-done">Erledigte entfernen</button>' : ''}
     </div>`;
 }
@@ -1451,7 +1432,7 @@ function itemForm(item) {
       <label>Notiz<input name="note" value="${esc(item.note || '')}" placeholder="z. B. Bio" /></label>
     </div>
     <details class="more-opts cat-opts">
-      <summary>Kategorie ändern <span class="muted small">(${esc(categoryOf(current).icon + ' ' + categoryOf(current).label)})</span></summary>
+      <summary>Kategorie ändern <span class="muted small">(${esc(categoryOf(current).icon + ' ' + categoryOf(current).label)})</span>${ic('down', 'sum-ic')}</summary>
       <div class="more-body">
     <div class="cat-grid">
       ${CATEGORIES.map(
@@ -1522,7 +1503,7 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>Familie</h2><button class="link" data-action="new-member">+ Person</button></div>
+      <div class="section-head"><h2>Familie</h2><button class="link" data-action="new-member">${ic('plus')}Person</button></div>
       <ul class="card list">
         ${ms
           .map(
@@ -1556,8 +1537,8 @@ function viewMehr() {
         <div class="seg wide theme-seg">
           ${[
             ['auto', 'Automatisch'],
-            ['light', '☀️ Hell'],
-            ['dark', '🌙 Dunkel'],
+            ['light', `${ic('heute')}Hell`],
+            ['dark', `${ic('moon')}Dunkel`],
           ]
             .map(([k, l]) => `<button class="${(lsGet('fo-theme') || 'auto') === k ? 'on' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`)
             .join('')}
@@ -1567,16 +1548,16 @@ function viewMehr() {
     </section>
 
     <details class="all-entries">
-      <summary>Alle Einträge verwalten <span class="muted small">Erinnerungen, Termine, Aufgaben</span></summary>
+      <summary><span class="grow-col"><span class="title">Alle Einträge verwalten</span><span class="muted small">Erinnerungen, Termine, Aufgaben</span></span><span class="chev">${ic('down')}</span></summary>
     <section>
-      <div class="section-head"><h2>Erinnerungen</h2><button class="link" data-action="new-reminder">+ Erinnerung</button></div>
+      <div class="section-head"><h2>Erinnerungen</h2><button class="link" data-action="new-reminder">${ic('plus')}Erinnerung</button></div>
       <ul class="card list">
         ${
           reminders.length
             ? reminders
                 .map(
                   (t) => `<li><button data-action="edit-task" data-id="${t.id}">
-                    <span class="grow">🔔 ${esc(t.title)} ${isRecurring(t) ? '<span class="muted small">↻</span>' : ''} ${chips(peopleOf(t))}</span>
+                    <span class="grow">${esc(t.title)} ${isRecurring(t) ? `<span class="muted rep">${ic('repeat')}</span>` : ''} ${chips(peopleOf(t))}</span>
                     <span class="muted small">${esc(when(t))}${t.due_time ? ` · ${D.hm(t.due_time)}` : ''}</span>
                   </button></li>`
                 )
@@ -1587,7 +1568,7 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>Termine</h2><button class="link" data-action="new-event">+ Termin</button></div>
+      <div class="section-head"><h2>Termine</h2><button class="link" data-action="new-event">${ic('plus')}Termin</button></div>
       <ul class="card list">
         ${
           events.length
@@ -1605,7 +1586,7 @@ function viewMehr() {
     </section>
 
     <section>
-      <div class="section-head"><h2>Offene &amp; wiederkehrende Aufgaben</h2><button class="link" data-action="new-task">+ Aufgabe</button></div>
+      <div class="section-head"><h2>Offene &amp; wiederkehrende Aufgaben</h2><button class="link" data-action="new-task">${ic('plus')}Aufgabe</button></div>
       <ul class="card list">
         ${
           tasks.length
@@ -1627,7 +1608,7 @@ function viewMehr() {
     <section>
       <h2>App</h2>
       <div class="card pad">
-        <p>${store.isCloud ? '☁️ Gemeinsamer Speicher (Supabase) aktiv.' : '📱 Lokaler Modus: Daten liegen nur auf diesem Gerät.'}</p>
+        <p class="with-ic">${store.isCloud ? `${ic('cloud')}Gemeinsamer Speicher (Supabase) aktiv.` : `${ic('phone')}Lokaler Modus: Daten liegen nur auf diesem Gerät.`}</p>
         <p class="muted small">Auf dem iPhone: in Safari „Teilen“ → „Zum Home-Bildschirm“. Auf Android: Menü → „App installieren“.</p>
         ${store.isCloud && state.session ? `<p class="muted small">Angemeldet als ${esc(state.session.user.email)}</p><button class="btn ghost" data-action="logout">Abmelden</button>` : ''}
       </div>
@@ -1728,10 +1709,10 @@ function searchItems() {
         kind: 'termin', score, ...when, title: ev.title, people: eventPeople(ev),
         pill: multi ? multiPill(ev, `${daysBetween(ev.date, ev.end_date) + 1} Tage`) : '',
         sub: [
-          weekly ? `↻ ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}` : '',
+          weekly ? `jeden ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}` : '',
           multi ? `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}` : '',
           time ? `${time}${ev.end_time ? `–${D.hm(ev.end_time)}` : ''}` : ev.all_day ? 'Ganztägig' : '',
-          ev.location ? `📍 ${ev.location}` : '',
+          ev.location ? ev.location : '',
         ].filter(Boolean).join(' · '),
         attrs: `data-action="search-open" data-kind="termin" data-id="${ev.id}" data-day="${when.day}"`,
       });
@@ -1749,7 +1730,7 @@ function searchItems() {
       if (!when) continue;
       out.push({
         kind: k, score, ...when, title: t.title, people: peopleOf(t), done: !isRecurring(t) && !!t.done_at,
-        sub: [isRecurring(t) ? `↻ ${rhythmText(t)}` : '', t.due_time ? `🕑 ${D.hm(t.due_time)}` : '', !when.day ? 'ohne Datum' : ''].filter(Boolean).join(' · '),
+        sub: [isRecurring(t) ? rhythmText(t) : '', t.due_time ? `${D.hm(t.due_time)} Uhr` : '', !when.day ? 'ohne Datum' : ''].filter(Boolean).join(' · '),
         attrs: `data-action="search-open" data-kind="task" data-id="${t.id}"`,
       });
     }
@@ -1767,7 +1748,7 @@ function searchItems() {
       const age = ageOn(b, day);
       out.push({
         kind: 'geburtstag', score: score || 1, day, upcoming: day >= D.todayKey(), title: b.name, people: [],
-        sub: `🎂 Geburtstag${age ? ` (${age})` : ''}`,
+        sub: `Geburtstag${age ? ` (${age})` : ''}`,
         attrs: `data-action="search-open" data-kind="geburtstag" data-id="${b.id}"`,
       });
     }
@@ -1783,7 +1764,7 @@ function searchItems() {
   return { items: out, recipes, labels: [...people.map((id) => member(id)?.name), ...(range?.labels || [])].filter(Boolean), empty: !terms.length && !people.length && !range };
 }
 
-const SEARCH_ICON = { termin: '📅', erinnerung: '🔔', aufgabe: '☑️', geburtstag: '🎂' };
+const SEARCH_ICON = { termin: ic('calendar'), erinnerung: ic('bell'), aufgabe: ic('task'), geburtstag: '<span class="emo">🎂</span>' };
 
 function searchRow(x) {
   const date = x.day
@@ -1793,10 +1774,10 @@ function searchRow(x) {
     <li class="sr ${x.done ? 'done' : ''}">
       <div class="sr-date ${x.day === D.todayKey() ? 'today' : ''}">${date}</div>
       <button class="sr-main" ${x.attrs}>
-        <span class="sr-title">${SEARCH_ICON[x.kind]} ${esc(x.title)}${x.pill || ''}${x.done ? ' <span class="muted small">✓</span>' : ''}</span>
+        <span class="sr-title with-ic">${SEARCH_ICON[x.kind]}${esc(x.title)}${x.pill || ''}${x.done ? ` <span class="muted">${ic('check')}</span>` : ''}</span>
         ${x.sub || x.people.length ? `<span class="meta">${x.sub ? `<span class="muted small">${esc(x.sub)}</span>` : ''}${chips(x.people)}</span>` : ''}
       </button>
-      ${x.day ? `<button class="sr-go" data-action="search-goto" data-day="${x.day}" aria-label="Tag öffnen">›</button>` : ''}
+      ${x.day ? `<button class="sr-go" data-action="search-goto" data-day="${x.day}" aria-label="Tag öffnen">${ic('right')}</button>` : ''}
     </li>`;
 }
 
@@ -1831,8 +1812,17 @@ function renderSearchResults() {
 
 /* ================= Rahmen ================= */
 
-const searchButton = () =>
-  '<button class="icon-btn" data-action="search" aria-label="Suchen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg></button>';
+const searchButton = () => `<button class="icon-btn" data-action="search" aria-label="Suchen">${ic('search')}</button>`;
+
+// Großer Titel links, Aktionen rechts – auf allen Reitern gleich
+const bigHeader = (title, actions = searchButton(), cls = '', below = '') => `
+      <header class="top big ${cls}">
+        <div class="big-row">
+          ${title}
+          <span class="head-actions">${actions}</span>
+        </div>
+        ${below}
+      </header>`;
 
 function header() {
   if (state.view === 'heute') {
@@ -1841,10 +1831,10 @@ function header() {
     const hello = h < 11 ? 'Guten Morgen' : h < 17 ? 'Hallo' : h < 22 ? 'Guten Abend' : 'Gute Nacht';
     const me = meMember();
     return `
-      <header class="top home">
+      <header class="top big home">
         <div class="home-row">
           <span class="greet">${hello}${me ? `, ${esc(me.name)}` : ''}</span>
-          <span class="home-actions">
+          <span class="head-actions">
             ${isToday ? '' : '<button class="pill" data-action="goto-today">Heute</button>'}
             ${searchButton()}
           </span>
@@ -1852,7 +1842,7 @@ function header() {
         <button class="date-big" data-action="pick-date" aria-label="Datum wählen">
           ${isToday ? '' : `<span class="rel">${D.relativeLabel(state.date)}</span>`}
           <span>${esc(D.formatLong(state.date))}</span>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+          ${ic('down')}
         </button>
         <input type="date" id="date-picker" value="${state.date}" tabindex="-1" aria-hidden="true" />
         ${weekStrip()}
@@ -1866,55 +1856,41 @@ function header() {
       ? `<span class="rel">${m.getFullYear()}</span><span class="date">${m.toLocaleDateString('de-DE', { month: 'long' })}</span>`
       : `<span class="rel">KW ${D.isoWeekNumber(state.weekStart)}</span>
          <span class="date">${D.formatDayMonth(state.weekStart)} – ${D.formatDayMonth(end)}</span>`;
-    return `
-      <header class="top cal-top">
-        <div class="cal-row">
-          <button class="nav" data-action="cal-step" data-dir="-1" aria-label="Zurück">‹</button>
-          <button class="title-btn" data-action="cal-today" aria-label="Zu heute">${title}</button>
-          <button class="nav" data-action="cal-step" data-dir="1" aria-label="Weiter">›</button>
-        </div>
-        <div class="cal-switch-row">
-          <span></span>
-          <div class="seg wide cal-switch">
-            <button class="${month ? '' : 'on'}" data-action="cal-mode" data-mode="woche">Woche</button>
-            <button class="${month ? 'on' : ''}" data-action="cal-mode" data-mode="monat">Monat</button>
-          </div>
-          ${searchButton()}
-        </div>
-      </header>`;
+    return bigHeader(
+      `<button class="title-btn" data-action="cal-today" aria-label="Zu heute">${title}</button>`,
+      `<button class="icon-btn" data-action="cal-step" data-dir="-1" aria-label="Zurück">${ic('left')}</button>
+       <button class="icon-btn" data-action="cal-step" data-dir="1" aria-label="Weiter">${ic('right')}</button>
+       ${searchButton()}`,
+      'cal-top',
+      `<div class="seg wide cal-switch">
+          <button class="${month ? '' : 'on'}" data-action="cal-mode" data-mode="woche">Woche</button>
+          <button class="${month ? 'on' : ''}" data-action="cal-mode" data-mode="monat">Monat</button>
+        </div>`
+    );
   }
   if (state.view === 'geburtstage') {
     return `
-      <header class="top">
-        <button class="nav" data-action="tab" data-tab="mehr" aria-label="Zurück">‹</button>
-        <h1>Geburtstage</h1>
-        <button class="nav" data-action="new-birthday" aria-label="Geburtstag eintragen">＋</button>
-      </header>`;
+      <header class="top sub">
+        <button class="icon-btn back" data-action="tab" data-tab="mehr" aria-label="Zurück">${ic('left')}<span>Einstellungen</span></button>
+        <span class="head-actions"><button class="icon-btn" data-action="new-birthday" aria-label="Geburtstag eintragen">${ic('plus')}</button></span>
+      </header>
+      <div class="sub-title"><h1>Geburtstage</h1></div>`;
   }
   if (state.view === 'person') {
     const m = member(state.personId);
     return `
-      <header class="top">
-        <button class="nav" data-action="back" aria-label="Zurück">‹</button>
-        <div class="person-title">${avatar(m)}<strong>${esc(m?.name || '')}</strong></div>
-        <button class="link" data-action="edit-member" data-id="${state.personId}">Bearbeiten</button>
-      </header>`;
+      <header class="top sub">
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Zurück</span></button>
+        <span class="head-actions"><button class="link" data-action="edit-member" data-id="${state.personId}">Bearbeiten</button></span>
+      </header>
+      <div class="sub-title person-title">${avatar(m)}<h1>${esc(m?.name || '')}</h1></div>`;
   }
+  // Suche gibt es dort, wo Termine stehen; Kochbuch hat sein eigenes Suchfeld
   const titles = { einkauf: 'Einkauf', mehr: 'Einstellungen', kochbuch: 'Kochbuch' };
-  return `<header class="top"><h1>${titles[state.view]}</h1></header>`;
+  return bigHeader(`<h1>${titles[state.view]}</h1>`, '');
 }
 
-// Schlichte Linien-Symbole (sehen auf allen Handys gleich aus)
-const ICONS = {
-  heute:
-    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  woche: '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2M11 17.5h2"/>',
-  kochbuch: '<path d="M2.5 5h6a3.5 3.5 0 0 1 3.5 3.5V20a2.5 2.5 0 0 0-2.5-2.5h-7z"/><path d="M21.5 5h-6A3.5 3.5 0 0 0 12 8.5V20a2.5 2.5 0 0 1 2.5-2.5h7z"/>',
-  einkauf: '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h2.8l2.4 11.5h11l2-8.5H6.2"/>',
-  mehr: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
-};
-const icon = (name) =>
-  `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+const icon = (name) => ic(name, 'tab-ic');
 
 // Wochenleiste Mo–So: Tippen wechselt den Tag, Punkt = da steht etwas an
 function weekStrip() {
@@ -1928,17 +1904,17 @@ function weekStrip() {
     tasksOn(day, { filter: false }).some((x) => !x.done && !x.overdue && !x.undated);
   return `
     <div class="week-strip">
-      <button class="ws-nav" data-action="prev-week-day" aria-label="Vorherige Woche">‹</button>
+      <button class="ws-nav" data-action="prev-week-day" aria-label="Vorherige Woche">${ic('left')}</button>
       ${days
         .map(
-          (day) => `<button class="ws-day ${day === state.date ? 'sel' : ''} ${day === today ? 'today' : ''} ${holidayOn(day, state.land) ? 'hol' : ''} ${schoolHolidayOn(day, state.land) ? 'ferien' : ''}" data-action="select-day" data-day="${day}">
+          (day) => `<button class="ws-day ${day === state.date ? 'sel' : ''} ${day === today ? 'today' : ''} ${D.isoWeekday(day) > 5 ? 'we' : ''} ${holidayOn(day, state.land) ? 'hol' : ''} ${schoolHolidayOn(day, state.land) ? 'ferien' : ''}" data-action="select-day" data-day="${day}">
             <span class="ws-wd">${D.WD_SHORT[D.isoWeekday(day) - 1]}</span>
             <span class="ws-num">${D.fromKey(day).getDate()}</span>
             <span class="ws-dot ${busy(day) ? 'on' : ''}"></span>
           </button>`
         )
         .join('')}
-      <button class="ws-nav" data-action="next-week-day" aria-label="Nächste Woche">›</button>
+      <button class="ws-nav" data-action="next-week-day" aria-label="Nächste Woche">${ic('right')}</button>
     </div>`;
 }
 
@@ -1989,7 +1965,7 @@ function render() {
     ${header()}
     <main id="main" class="view-${state.view}">${views[state.view]()}</main>
     ${recipeList()}
-    ${['heute', 'woche', 'einkauf', 'kochbuch', 'person', 'geburtstage'].includes(state.view) ? '<button class="fab" data-action="add" aria-label="Neu">+</button>' : ''}
+    ${['heute', 'woche', 'person'].includes(state.view) ? `<button class="fab" data-action="add" aria-label="Neu">${ic('plus')}</button>` : ''}
     ${tabbar()}`;
   window.scrollTo(0, scroll);
   renderSearchResults(); // offene Suche aktuell halten
@@ -2013,7 +1989,7 @@ function whoScreen() {
   const ms = members().filter((m) => m.role !== 'kind');
   return `
     <div class="center-screen">
-      <div class="logo">👋</div>
+      <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
       <h1>Wer bist du?</h1>
       <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Einstellungen“ geändert werden.</p>
       <div class="who">
@@ -2185,7 +2161,7 @@ function eventForm(ev, day) {
           : ''
       }
        ${exception ? `<button type="button" class="btn ghost wide" data-action="reset-exception" data-id="${ev.id}">Wieder wie die Serie</button>` : ''}
-       ${weekly ? `<details class="occ-box" data-id="${ev.id}"><summary>Einzelne Termine anzeigen</summary><div class="occ-body">${occurrenceList(ev, 8)}</div></details>` : ''}
+       ${weekly ? `<details class="occ-box" data-id="${ev.id}"><summary>Einzelne Termine anzeigen${ic('down', 'sum-ic')}</summary><div class="occ-body">${occurrenceList(ev, 8)}</div></details>` : ''}
        <button type="button" class="btn danger wide" data-action="delete-event" data-id="${ev.id}">
          ${weekly ? 'Ganze Serie löschen' : 'Termin löschen'}</button>`;
 
@@ -2342,7 +2318,7 @@ function occurrenceList(ev, n) {
       <span class="occ-day">${esc(D.formatShort(d))}</span>
       <span class="occ-time">${esc(time)}</span>
       ${note}
-      <span class="occ-go">›</span>
+      <span class="occ-go">${ic('right')}</span>
     </button></li>`);
   }
   if (!rows.length) return '<p class="muted small">Keine weiteren Termine.</p>';
@@ -2359,7 +2335,7 @@ const rhythmShort = (ev) => `jeden ${[...(ev.weekdays || [])].sort().map((x) => 
 const presetPeople = () => (state.view === 'person' && member(state.personId) ? [state.personId] : null);
 
 const moreOptions = (inner, open) =>
-  `<details class="more-opts" ${open ? 'open' : ''}><summary>Mehr Optionen</summary><div class="more-body">${inner}</div></details>`;
+  `<details class="more-opts" ${open ? 'open' : ''}><summary>Mehr Optionen${ic('down', 'sum-ic')}</summary><div class="more-body">${inner}</div></details>`;
 
 // Mehrfachauswahl von Personen ("für wen?")
 function peoplePicker(selected) {
@@ -2432,7 +2408,7 @@ function reminderForm(t, day) {
       <label>Uhrzeit (optional)<input type="time" name="due_time" value="${esc(D.hm(t.due_time))}" /></label>
     </div>
     <div class="field-label">Für wen? <span class="muted small">(mehrere möglich – jede/r kann abhaken)</span></div>
-    <p class="muted small hint">🔒 Sehen können die Erinnerung nur die ausgewählten Personen und du.</p>
+    <p class="muted small hint with-ic">${ic('lock')}Sehen können die Erinnerung nur die ausgewählten Personen und du.</p>
     ${peoplePicker(peopleOf(t))}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
   const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Erinnerung löschen</button>`;
@@ -2523,7 +2499,7 @@ function birthdaysEntry() {
   return `<button class="card nav-row" data-action="tab" data-tab="geburtstage">
     <span class="nav-icon">🎂</span>
     <span class="grow-col"><span class="title">Geburtstage</span><span class="muted small">${esc(preview)}</span></span>
-    <span class="chev">›</span>
+    <span class="chev">${ic('right')}</span>
   </button>`;
 }
 
@@ -2551,8 +2527,7 @@ function viewGeburtstage() {
             : '<li class="empty">Noch keine Geburtstage eingetragen</li>'
         }
       </ul>`
-      }
-    <button class="btn ghost wide" data-action="new-birthday">＋ Geburtstag eintragen</button>`;
+      }`;
 }
 
 function birthdayForm(b) {
@@ -2597,7 +2572,7 @@ function memberForm(m) {
     <div class="avatar-edit">
       <div id="avatar-preview">${avatar(m, 'big')}</div>
       <div class="avatar-actions">
-        <label class="btn ghost">📷 Foto wählen<input type="file" id="avatar-file" accept="image/*" hidden /></label>
+        <label class="btn ghost">${ic('camera')}Foto wählen<input type="file" id="avatar-file" accept="image/*" hidden /></label>
         <button type="button" class="link" data-action="remove-avatar" ${m.avatar ? '' : 'hidden'}>Foto entfernen</button>
       </div>
       <input type="hidden" name="avatar" id="avatar-value" value="${esc(m.avatar || '')}" />
@@ -2635,9 +2610,9 @@ function addChooser() {
     <div class="backdrop" data-action="close-sheet"></div>
     <div class="sheet chooser compact">
       <span class="grabber" aria-hidden="true"></span>
-      <button class="btn big" data-action="new-reminder">🔔 Erinnerung</button>
-      <button class="btn big" data-action="new-event">📅 Termin</button>
-      <button class="btn big" data-action="new-task">☑️ Aufgabe</button>
+      <button class="btn big" data-action="new-reminder">${ic('bell')}Erinnerung</button>
+      <button class="btn big" data-action="new-event">${ic('calendar')}Termin</button>
+      <button class="btn big" data-action="new-task">${ic('task')}Aufgabe</button>
       <button class="btn ghost wide" data-action="close-sheet">Abbrechen</button>
     </div>`;
   document.body.classList.add('sheet-open');
