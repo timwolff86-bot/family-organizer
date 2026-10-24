@@ -2101,7 +2101,7 @@ function updateRepeatVisibility(form) {
 
 function eventForm(ev, day) {
   const isNew = !ev;
-  ev ||= { date: day || state.date };
+  ev ||= { date: day || state.date, member_ids: presetPeople() || [] };
   const weekly = ev.weekdays?.length > 0;
   const multi = !weekly && ev.end_date && ev.end_date > ev.date;
   const allDay = !!ev.all_day;
@@ -2161,6 +2161,7 @@ function eventForm(ev, day) {
           : ''
       }
        ${exception ? `<button type="button" class="btn ghost wide" data-action="reset-exception" data-id="${ev.id}">Wieder wie die Serie</button>` : ''}
+       ${weekly ? `<details class="occ-box" data-id="${ev.id}"><summary>Einzelne Termine anzeigen</summary><div class="occ-body">${occurrenceList(ev, 8)}</div></details>` : ''}
        <button type="button" class="btn danger wide" data-action="delete-event" data-id="${ev.id}">
          ${weekly ? 'Ganze Serie löschen' : 'Termin löschen'}</button>`;
 
@@ -2223,6 +2224,38 @@ function eventForm(ev, day) {
   }
 }
 
+// Die nächsten Termine einer Serie (mit Ausfällen und Einzeländerungen), jeder antippbar
+function occurrenceList(ev, n) {
+  const today = D.todayKey();
+  const rows = [];
+  let more = false;
+  for (let d = today, i = 0; i < 400; i++, d = D.addDays(d, 1)) {
+    if (ev.end_date && d > ev.end_date) break;
+    if (!ev.weekdays.includes(D.isoWeekday(d))) continue;
+    if (rows.length === n) {
+      more = true;
+      break;
+    }
+    const exc = state.data.events.find((x) => x.series_id === ev.id && x.series_date === d);
+    const cancelled = !exc && state.data.event_occurrences.some((o) => o.event_id === ev.id && o.date === d && o.cancelled);
+    const time = exc ? timeLabel({ ev: exc, day: exc.date, multi: false }) : timeLabel({ ev, day: d, multi: false });
+    const note = exc
+      ? `<span class="changed-tag">geändert${exc.date !== d ? ` → ${esc(D.formatShort(exc.date))}` : ''}</span>`
+      : cancelled
+        ? '<span class="cancel-tag">fällt aus</span>'
+        : '';
+    rows.push(`<li><button type="button" class="occ-row ${cancelled ? 'off' : ''}" data-action="open-occurrence" data-id="${exc ? exc.id : ev.id}" data-day="${exc ? exc.date : d}">
+      <span class="occ-day">${esc(D.formatShort(d))}</span>
+      <span class="occ-time">${esc(time)}</span>
+      ${note}
+      <span class="occ-go">›</span>
+    </button></li>`);
+  }
+  if (!rows.length) return '<p class="muted small">Keine weiteren Termine.</p>';
+  return `<ul class="occ-list">${rows.join('')}</ul>
+    ${more ? `<button type="button" class="link" data-action="more-occurrences" data-id="${ev.id}" data-n="${n + 8}">Weitere anzeigen</button>` : ''}`;
+}
+
 const rhythmShort = (ev) => `jeden ${[...(ev.weekdays || [])].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}`;
 
 function updateScopeVisibility(form) {
@@ -2232,6 +2265,9 @@ function updateScopeVisibility(form) {
 
 
 // Selten gebrauchte Felder einklappen; offen, wenn schon etwas eingetragen ist
+// In der Personenansicht ist die Person bei neuen Einträgen schon ausgewählt
+const presetPeople = () => (state.view === 'person' && member(state.personId) ? [state.personId] : null);
+
 const moreOptions = (inner, open) =>
   `<details class="more-opts" ${open ? 'open' : ''}><summary>Mehr Optionen</summary><div class="more-body">${inner}</div></details>`;
 
@@ -2292,7 +2328,7 @@ const noRhythm = { repeat: null, weekdays: null, repeat_from: null };
 
 function reminderForm(t, day) {
   const isNew = !t;
-  t ||= { due_date: day || state.date, assignees: state.me ? [state.me] : [] };
+  t ||= { due_date: day || state.date, assignees: presetPeople() || (state.me ? [state.me] : []) };
   const weekly = isRecurring(t);
   const inner = `
     <label>Woran erinnern?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Turnbeutel einpacken" required /></label>
@@ -2342,7 +2378,7 @@ function reminderForm(t, day) {
 
 function taskForm(t, day) {
   const isNew = !t;
-  t ||= { assignee: null, due_date: day || state.date };
+  t ||= { assignee: null, assignees: presetPeople() || [], due_date: day || state.date };
   const mode = isRecurring(t) ? 'weekly' : t.due_date ? 'date' : 'none';
   const inner = `
     <label>Was?<input name="title" value="${esc(t.title || '')}" placeholder="z. B. Getränke bestellen" required /></label>
@@ -2747,6 +2783,11 @@ const actions = {
     const o = eventsOn(d.day).find((x) => x.ev.id === d.id);
     if (o) setOccurrence(o, { cancelled: !o.cancelled });
     closeSheet();
+  },
+  'open-occurrence': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
+  'more-occurrences': (d, el) => {
+    const ev = state.data.events.find((e) => e.id === d.id);
+    el.closest('.occ-body').innerHTML = occurrenceList(ev, Number(d.n));
   },
   'reset-exception': (d) => {
     closeSheet();

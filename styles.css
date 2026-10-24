@@ -2756,3 +2756,68 @@ form.sheet .sheet-body {
   font-weight: 700;
   color: var(--accent);
 }
+
+/* Serie: einzelne Termine (eingeklappt) */
+.occ-box {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.occ-box > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.occ-box > summary::-webkit-details-marker {
+  display: none;
+}
+.occ-box > summary::after {
+  content: ' ›';
+}
+.occ-box[open] > summary::after {
+  content: ' ⌄';
+}
+.occ-body {
+  padding: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.occ-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+.occ-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+.occ-day {
+  font-weight: 600;
+  min-width: 84px;
+}
+.occ-time {
+  color: var(--muted);
+  font-size: 14px;
+}
+.occ-row.off .occ-day,
+.occ-row.off .occ-time {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.occ-go {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 20px;
+}
+.occ-body .link {
+  margin-top: 8px;
+}
