@@ -33,7 +33,7 @@ Repo, du bekommst sie separat. Bitte nirgends öffentlich ablegen.
 ## 4. Versand-Funktion anlegen
 
 1. **Edge Functions → Deploy a new function → Via Editor**
-2. Name: **`push`** (genau so, klein geschrieben)
+2. Name: **`push`** (die App findet auch `Push`; im Zeitplan in Schritt 5 muss der Name genau gleich geschrieben sein)
 3. Den gesamten Inhalt von `supabase/functions/push/index.ts` in die Datei `index.ts` einfügen
    (vorhandenen Beispielcode vorher löschen) → **Deploy**
 4. In der Funktion unter **Details/Settings** die Option
