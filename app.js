@@ -323,6 +323,10 @@ function eventsOn(day) {
     const occ = state.data.event_occurrences.find((o) => o.event_id === ev.id && o.date === day);
     const multi = !weekly && ev.end_date && ev.end_date > ev.date;
     const o = { ev, occ, day, weekly, multi, cancelled: occ?.cancelled || false };
+    if (multi) {
+      o.dayNo = daysBetween(ev.date, day) + 1;
+      o.days = daysBetween(ev.date, ev.end_date) + 1;
+    }
     o.time = timeLabel(o);
     // Sortierung: Ganztägiges oben, dann nach Uhrzeit
     o.sort = o.time === 'Ganztägig' || o.time.startsWith('bis') ? '' : D.hm(ev.start_time) || '';
@@ -331,6 +335,15 @@ function eventsOn(day) {
   // Ausgefallene Termine ans Ende
   return out.sort((a, b) => a.cancelled - b.cancelled || a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
 }
+
+const daysBetween = (a, b) => Math.round((D.fromKey(b) - D.fromKey(a)) / 86400000);
+
+// Dezentes Etikett für mehrtägige Termine: "2/5" (bzw. "5 Tage")
+function multiPill(ev, text) {
+  const c = member(eventPeople(ev)[0])?.color || 'var(--muted)';
+  return `<span class="mpill" style="--c:${esc(c)}" title="Mehrtägiger Termin">${esc(text)}</span>`;
+}
+const dayPill = (o) => (o.multi && !o.cancelled ? multiPill(o.ev, `${o.dayNo}/${o.days}`) : '');
 
 // Personen eines Termins (ältere Einträge haben nur member_id)
 const eventPeople = (ev) => (ev.member_ids?.length ? ev.member_ids : ev.member_id ? [ev.member_id] : []);
@@ -349,12 +362,8 @@ function timeLabel({ ev, day, multi }) {
   return end ? `${start}–${end}` : start;
 }
 
-// "Mo 26.10. – Fr 30.10. · Tag 2 von 5"
-function rangeLabel({ ev, day }) {
-  const total = Math.round((D.fromKey(ev.end_date) - D.fromKey(ev.date)) / 86400000) + 1;
-  const n = Math.round((D.fromKey(day) - D.fromKey(ev.date)) / 86400000) + 1;
-  return `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)} · Tag ${n} von ${total}`;
-}
+// "Mo 26.10. – Fr 30.10." (welcher Tag es ist, zeigt das Etikett)
+const rangeLabel = ({ ev }) => `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}`;
 
 function setOccurrence(o, patch) {
   const row = { event_id: o.ev.id, date: o.day, cancelled: o.cancelled, ...patch };
@@ -384,7 +393,7 @@ function eventCard(o) {
                 ? `<div class="time-line ${allDay ? 'all-day' : ''}">${esc(o.time)}</div>`
                 : ''
           }
-          <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}</div>
+          <div class="title">${esc(ev.title)} ${o.weekly ? '<span class="muted small">↻</span>' : ''}${dayPill(o)}</div>
           <div class="meta">${chips(eventPeople(ev))}${ev.location ? `<span class="muted">📍 ${esc(ev.location)}</span>` : ''}</div>
           ${o.multi && !o.cancelled ? `<div class="muted small">📆 ${esc(rangeLabel(o))}</div>` : ''}
           ${ev.notes && !o.cancelled ? `<div class="muted small">${esc(ev.notes)}</div>` : ''}
@@ -708,8 +717,8 @@ function viewWoche() {
                 ? events
                     .map(
                       (o) => `<div class="wline ${o.cancelled ? 'cancelled' : ''}">
-                        ${o.time ? `<span class="muted">${o.time === 'Ganztägig' ? (o.multi ? '📆' : 'ganzt.') : esc(o.time)}</span>` : o.multi ? '<span class="muted">📆</span>' : ''}
-                        ${esc(o.ev.title)} ${chips(eventPeople(o.ev))}
+                        ${o.time && !(o.multi && o.time === 'Ganztägig') ? `<span class="muted">${o.time === 'Ganztägig' ? 'ganzt.' : esc(o.time)}</span>` : ''}
+                        ${esc(o.ev.title)}${dayPill(o)} ${chips(eventPeople(o.ev))}
                       </div>`
                     )
                     .join('')
@@ -744,9 +753,36 @@ function viewMonat() {
     start = D.addDays(start, 7);
     if (start.slice(5, 7) !== monthNo) break;
   }
-  const dotsFor = (day) => {
+  // Mehrtägige Termine als durchgehende Balken: je Wochenzeile feste Spuren (max. 2)
+  const lanesFor = (ws) => {
+    const we = D.addDays(ws, 6);
+    const evs = state.data.events
+      .filter((ev) => !ev.weekdays?.length && ev.date && ev.end_date > ev.date && ev.date <= we && ev.end_date >= ws)
+      .sort((a, b) => a.date.localeCompare(b.date) || b.end_date.localeCompare(a.end_date));
+    const lanes = [];
+    for (const ev of evs) {
+      const lane = lanes.find((l) => l[l.length - 1].end_date < ev.date);
+      if (lane) lane.push(ev);
+      else if (lanes.length < 2) lanes.push([ev]);
+    }
+    return lanes;
+  };
+  const barsFor = (day, lanes) =>
+    lanes.length
+      ? `<span class="m-bars">${lanes
+          .map((l) => {
+            const ev = l.find((e) => e.date <= day && e.end_date >= day);
+            const off = !ev || state.data.event_occurrences.some((o) => o.event_id === ev.id && o.date === day && o.cancelled);
+            if (off) return '<i></i>';
+            const c = member(eventPeople(ev)[0])?.color || 'var(--muted)';
+            return `<i class="on ${ev.date === day ? 'start' : ''} ${ev.end_date === day ? 'end' : ''}" style="--c:${esc(c)}"></i>`;
+          })
+          .join('')}</span>`
+      : '';
+  const dotsFor = (day, lanes) => {
     const dots = [];
-    for (const o of eventsOn(day)) if (!o.cancelled) dots.push(member(eventPeople(o.ev)[0])?.color || 'var(--muted)');
+    const barred = new Set(lanes.flat().map((e) => e.id));
+    for (const o of eventsOn(day)) if (!o.cancelled && !barred.has(o.ev.id)) dots.push(member(eventPeople(o.ev)[0])?.color || 'var(--muted)');
     const rem = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && !x.undated).length;
     const tsk = tasksOn(day, { filter: false }).filter((x) => !x.overdue && !x.undated).length;
     const bd = birthdaysOn(day).length;
@@ -760,15 +796,17 @@ function viewMonat() {
     <div class="month">
       <div class="m-head"><span></span>${D.WD_SHORT.map((w) => `<span>${w}</span>`).join('')}</div>
       ${rows
+        .map((ws) => [ws, lanesFor(ws)])
         .map(
-          (ws) => `<div class="m-row">
+          ([ws, lanes]) => `<div class="m-row">
             <button class="m-kw" data-action="open-week" data-week="${ws}" aria-label="Woche öffnen">${D.isoWeekNumber(ws)}</button>
             ${Array.from({ length: 7 }, (_, i) => D.addDays(ws, i))
               .map(
                 (day) => `<button class="m-day ${day.slice(5, 7) !== monthNo ? 'other' : ''} ${day === today ? 'today' : ''} ${day === sel ? 'sel' : ''}
                   ${holidayOn(day, state.land) ? 'hol' : ''} ${schoolHolidayOn(day, state.land) ? 'ferien' : ''}" data-action="month-day" data-day="${day}">
                   <span class="m-num">${D.fromKey(day).getDate()}</span>
-                  <span class="m-dots">${dotsFor(day)}</span>
+                  ${barsFor(day, lanes)}
+                  <span class="m-dots">${dotsFor(day, lanes)}</span>
                 </button>`
               )
               .join('')}
@@ -805,7 +843,7 @@ function monthAgenda(day) {
         .map(
           (o) => `<button class="card ag-event ${o.cancelled ? 'cancelled' : ''}" data-action="edit-event" data-id="${o.ev.id}" data-day="${day}">
             <span class="ag-time">${esc(o.time)}</span>
-            <span class="ag-title">${esc(o.ev.title)}</span>
+            <span class="ag-title">${esc(o.ev.title)}${dayPill(o)}</span>
             <span class="meta">${chips(eventPeople(o.ev))}</span>
           </button>`
         )
@@ -1486,6 +1524,7 @@ function searchItems() {
       const time = D.hm(ev.start_time);
       out.push({
         kind: 'termin', score, ...when, title: ev.title, people: eventPeople(ev),
+        pill: multi ? multiPill(ev, `${daysBetween(ev.date, ev.end_date) + 1} Tage`) : '',
         sub: [
           weekly ? `↻ ${[...ev.weekdays].sort().map((x) => D.WD_SHORT[x - 1]).join(', ')}` : '',
           multi ? `${D.formatShort(ev.date)} – ${D.formatShort(ev.end_date)}` : '',
@@ -1552,7 +1591,7 @@ function searchRow(x) {
     <li class="sr ${x.done ? 'done' : ''}">
       <div class="sr-date ${x.day === D.todayKey() ? 'today' : ''}">${date}</div>
       <button class="sr-main" ${x.attrs}>
-        <span class="sr-title">${SEARCH_ICON[x.kind]} ${esc(x.title)}${x.done ? ' <span class="muted small">✓</span>' : ''}</span>
+        <span class="sr-title">${SEARCH_ICON[x.kind]} ${esc(x.title)}${x.pill || ''}${x.done ? ' <span class="muted small">✓</span>' : ''}</span>
         ${x.sub || x.people.length ? `<span class="meta">${x.sub ? `<span class="muted small">${esc(x.sub)}</span>` : ''}${chips(x.people)}</span>` : ''}
       </button>
       ${x.day ? `<button class="sr-go" data-action="search-goto" data-day="${x.day}" aria-label="Tag öffnen">›</button>` : ''}
