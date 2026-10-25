@@ -1702,8 +1702,8 @@ function splitAmount(text) {
 function addItem(text, { countUse = true } = {}) {
   const { name, amount } = splitAmount(text);
   const category = classify(name, state.data.products);
-  const shop = state.view === 'einkauf' && state.shopFilter;
-  save('shopping_items', { name, category, done: false, ...(amount ? { amount } : {}), ...(shop ? { shop } : {}) });
+  const shop = (state.view === 'einkauf' && state.shopFilter) || defaultShop();
+  save('shopping_items', { name, category, done: false, shop, ...(amount ? { amount } : {}) });
   if (countUse) rememberProduct(name, category);
 }
 
@@ -1753,9 +1753,59 @@ function categoryHint(name) {
   return `${c.icon} ${c.label}`;
 }
 
-// Laden eines Artikels (Datenbank-Vorgabe ist "Rewe")
-const shopOf = (i) => (i.shop || 'Rewe').trim();
-const COMMON_SHOPS = ['Rewe', 'Edeka', 'Aldi', 'Lidl', 'Kaufland', 'dm', 'Rossmann', 'Bäcker', 'Metzger', 'Wochenmarkt', 'Drogerie', 'Apotheke'];
+// Läden: gemeinsame Liste (Tabelle shops), Standard-Laden zuerst. Ohne Tabelle: nur Lidl.
+const shopsReady = () => !state.data.missing?.includes('shops');
+function shopList() {
+  const rows = (state.data.shops || []).filter((x) => x.name?.trim());
+  const list = rows.length ? rows : [{ id: null, name: 'Lidl', is_default: true, sort: 0 }];
+  return [...list].sort((a, b) => b.is_default - a.is_default || (a.sort || 0) - (b.sort || 0) || a.name.localeCompare(b.name));
+}
+const defaultShop = () => shopList()[0].name;
+const shopOf = (i) => i.shop?.trim() || defaultShop();
+const sameShop = (a, b) => normalize(a) === normalize(b);
+
+// Neuen Laden anlegen (oder vorhandenen gleichen Namens zurückgeben)
+function ensureShop(name) {
+  name = name.trim();
+  const hit = shopList().find((x) => sameShop(x.name, name));
+  if (hit) return hit.name;
+  if (!shopsReady()) return name;
+  // Erster eigener Laden: den Standard (Lidl) mit anlegen, damit er in der Liste bleibt
+  if (!(state.data.shops || []).length) save('shops', { name: defaultShop(), is_default: true, sort: 0 }, 'name', { quiet: true });
+  save('shops', { name, is_default: false, sort: (state.data.shops || []).length }, 'name', { quiet: true });
+  return name;
+}
+
+function shopsPanel() {
+  const list = shopList();
+  const used = (name) => state.data.shopping_items.filter((i) => !i.done && sameShop(shopOf(i), name)).length;
+  openPanel(
+    'Läden',
+    `${shopsReady() ? '' : '<div class="banner">Datenbank-Update nötig: bitte supabase/update-14.sql in Supabase ausführen.</div>'}
+    <form class="card add-item" data-form="add-shop">
+      <input name="shop" placeholder="Neuer Laden, z. B. Rewe" autocomplete="off" enterkeyhint="done" required ${shopsReady() ? '' : 'disabled'} />
+      <button class="btn primary" type="submit" aria-label="Laden hinzufügen" ${shopsReady() ? '' : 'disabled'}>${ic('plus')}</button>
+    </form>
+    <ul class="card shops-list">
+      ${list
+        .map(
+          (x) => `<li><div class="shop-row">
+            <span class="grow">${esc(x.name)} <span class="muted small">${used(x.name) ? `${used(x.name)} offen` : ''}</span></span>
+            ${
+              x.is_default
+                ? '<span class="tag soft">Standard</span>'
+                : x.id
+                  ? `<button class="link" data-action="shop-default" data-id="${x.id}">Als Standard</button>
+                     <button class="icon-btn" data-action="shop-delete" data-id="${x.id}" aria-label="${esc(x.name)} entfernen">${ic('close')}</button>`
+                  : ''
+            }
+          </div></li>`
+        )
+        .join('')}
+    </ul>
+    <p class="muted small">Neue Artikel kommen in den Standard-Laden – außer du hast oben im Einkauf gerade einen Laden ausgewählt.</p>`
+  );
+}
 
 function viewEinkauf() {
   const items = state.data.shopping_items;
@@ -1795,14 +1845,15 @@ function viewEinkauf() {
       <button class="btn primary" type="submit" aria-label="Hinzufügen">${ic('plus')}</button>
     </form>
     <div class="suggest" id="suggest"></div>
-    ${
-      shops.length > 1
-        ? `<div class="chip-row shop-filter">
-            <button class="filter-chip ${sf ? '' : 'on'}" data-action="shop-filter" data-shop="">Alle <span class="n">${open.length}</span></button>
-            ${shops.map(([s, n]) => `<button class="filter-chip ${sf === s ? 'on' : ''}" data-action="shop-filter" data-shop="${esc(s)}">${esc(s)} <span class="n">${n}</span></button>`).join('')}
-          </div>`
-        : ''
-    }
+    <div class="chip-row shop-filter">
+      ${
+        shops.length > 1
+          ? `<button class="filter-chip ${sf ? '' : 'on'}" data-action="shop-filter" data-shop="">Alle <span class="n">${open.length}</span></button>
+            ${shops.map(([s, n]) => `<button class="filter-chip ${sf === s ? 'on' : ''}" data-action="shop-filter" data-shop="${esc(s)}">${esc(s)} <span class="n">${n}</span></button>`).join('')}`
+          : ''
+      }
+      <button class="filter-chip shops-btn" data-action="shops">${ic('pencil')}Läden</button>
+    </div>
     ${groups ? `<div class="card shop-card">${groups}</div>` : `<p class="empty">${items.length ? 'Alles erledigt.' : 'Die Liste ist leer.'}</p>`}
     ${
       done.length
@@ -1835,8 +1886,13 @@ function itemForm(item) {
       <label>Menge<input name="amount" value="${esc(item.amount || '')}" placeholder="z. B. 2 kg, 6 Stück" /></label>
       <label>Notiz<input name="note" value="${esc(item.note || '')}" placeholder="z. B. Bio" /></label>
     </div>
-    <label>Laden<input name="shop" value="${esc(shopOf(item))}" list="shop-list" autocomplete="off" /></label>
-    <datalist id="shop-list">${[...new Set([...state.data.shopping_items.map(shopOf), ...COMMON_SHOPS])].map((x) => `<option value="${esc(x)}"></option>`).join('')}</datalist>
+    <div class="field-label">Laden</div>
+    <div class="shop-pick">
+      ${[...new Set([...shopList().map((x) => x.name), shopOf(item)])]
+        .map((n) => `<label><input type="radio" name="shop" value="${esc(n)}" ${sameShop(n, shopOf(item)) ? 'checked' : ''}/><span>${esc(n)}</span></label>`)
+        .join('')}
+    </div>
+    ${shopsReady() ? '<input name="shop_new" class="shop-new" placeholder="oder neuer Laden …" autocomplete="off" />' : ''}
     <details class="more-opts cat-opts">
       <summary>Kategorie ändern <span class="muted small">(${esc(categoryOf(current).icon + ' ' + categoryOf(current).label)})</span>${ic('down', 'sum-ic')}</summary>
       <div class="more-body">
@@ -1861,7 +1917,7 @@ function itemForm(item) {
         category,
         amount: f.get('amount').trim() || null,
         note: f.get('note').trim() || null,
-        shop: f.get('shop').trim() || 'Rewe',
+        shop: f.get('shop_new')?.trim() ? ensureShop(f.get('shop_new')) : f.get('shop') || defaultShop(),
       });
       rememberProduct(name, category, { countUse: false });
       closeSheet();
@@ -3631,6 +3687,23 @@ const actions = {
     addItem(d.name);
     toast(`${d.name} hinzugefügt`);
   },
+  shops: () => shopsPanel(),
+  'shop-default': (d) => {
+    for (const x of state.data.shops) if (x.is_default && x.id !== d.id) save('shops', { id: x.id, is_default: false }, 'id', { quiet: true });
+    save('shops', { id: d.id, is_default: true }, 'id', { quiet: true });
+    setTimeout(shopsPanel, 0);
+  },
+  'shop-delete': (d) => {
+    const x = state.data.shops.find((s) => s.id === d.id);
+    if (!x) return;
+    const fallback = shopList().find((s) => s.id !== x.id)?.name || 'Lidl';
+    const moved = state.data.shopping_items.filter((i) => sameShop(shopOf(i), x.name));
+    for (const i of moved) save('shopping_items', { id: i.id, shop: fallback }, 'id', { quiet: true });
+    if (state.shopFilter && sameShop(state.shopFilter, x.name)) state.shopFilter = null;
+    del('shops', x.id);
+    toast(moved.length ? `${x.name} entfernt – ${moved.length} ${moved.length === 1 ? 'Artikel' : 'Artikel'} jetzt bei ${fallback}` : `${x.name} entfernt`);
+    setTimeout(shopsPanel, 0);
+  },
   'shop-filter': (d) => {
     state.shopFilter = d.shop || null;
     render();
@@ -3882,6 +3955,15 @@ document.addEventListener('submit', async (e) => {
     input.blur(); // sonst wird die Liste nicht neu gezeichnet
     addItem(name); // zeichnet sofort neu
     $('#main form.add-item input[name="name"]')?.focus();
+  }
+
+  if (kind === 'add-shop') {
+    const name = (f.get('shop') || '').trim();
+    if (!name) return;
+    const hit = shopList().find((x) => x.id && sameShop(x.name, name));
+    ensureShop(name);
+    toast(hit ? `${hit.name} gibt es schon` : `${name} hinzugefügt`);
+    setTimeout(shopsPanel, 0);
   }
 
   if (kind === 'login') {

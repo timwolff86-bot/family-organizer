@@ -182,12 +182,23 @@ alter table public.push_log enable row level security;
 -- Enddatum für wiederkehrende Erinnerungen/Aufgaben (Update 13)
 alter table public.tasks add column if not exists repeat_until date;
 
+-- Läden für den Einkauf (Update 14)
+create table if not exists public.shops (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  is_default boolean not null default false,
+  sort int not null default 0,
+  created_at timestamptz not null default now()
+);
+insert into public.shops (name, is_default) values ('Lidl', true) on conflict (name) do nothing;
+alter table public.shopping_items alter column shop set default 'Lidl';
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
 declare t text;
 begin
-  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays','push_subscriptions'] loop
+  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays','push_subscriptions','shops'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "familie" on public.%I', t);
     execute format('create policy "familie" on public.%I for all to authenticated using (true) with check (true)', t);
