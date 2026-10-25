@@ -1342,7 +1342,7 @@ function viewMonat() {
     return [
       ...dots.slice(0, 3).map((c) => `<i style="background:${esc(c)}"></i>`),
       rem || tsk ? '<i class="dot-task"></i>' : '',
-      bd ? '<i class="dot-bd"></i>' : '',
+      bd ? '<span class="dot-cake" aria-label="Geburtstag">🎂</span>' : '',
     ].join('');
   };
   const grid = `
@@ -1367,10 +1367,7 @@ function viewMonat() {
         )
         .join('')}
     </div>`;
-  const legend = `<div class="m-legend" aria-hidden="true">
-      <span><i class="lg-ev"></i>Termin</span><span><i class="dot-task"></i>Aufgabe</span><span><i class="dot-bd"></i>Geburtstag</span>
-    </div>`;
-  return grid + legend + monthAgenda(sel);
+  return grid + monthAgenda(sel);
 }
 
 // Einträge eines Tages, jeder direkt antippbar

@@ -4065,3 +4065,14 @@ details[open] > summary .sum-ic {
 .time-hint {
   margin: -4px 2px 8px;
 }
+/* Monat: Geburtstag als kleiner Kuchen statt Punkt */
+.m-dots .dot-cake {
+  font-size: 10px;
+  line-height: 6px;
+  height: 6px;
+  display: block;
+  transform: translateY(-1px);
+}
+.month {
+  margin-bottom: 4px;
+}
