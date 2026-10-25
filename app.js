@@ -40,6 +40,7 @@ const state = {
   monthSel: D.todayKey(), // im Monat ausgewählter Tag
   land: lsGet('fo-land') ?? 'NW', // Bundesland für Ferien/Feiertage, '' = aus
   pendingRender: false,
+  shopFilter: null, // Einkauf: nur ein Laden
   personFilter: null, // Personenansicht: nur Termine/Erinnerungen/Aufgaben
   personRange: 14, // Personenansicht: Tage ab heute (14 → 31 → 92 über "mehr zeigen")
 };
@@ -1449,6 +1450,35 @@ function recipeRow(r, action = 'open-recipe', extra = '') {
     </button></li>`;
 }
 
+// Kochbuch oben: Essen der nächsten 7 Tage, leere Tage zum Planen, Zutaten für alle auf einmal
+function weekMealPlan() {
+  const today = D.todayKey();
+  const days = Array.from({ length: 7 }, (_, i) => D.addDays(today, i));
+  const ids = [];
+  const rows = days.map((day) => {
+    const meal = state.data.meals.find((m) => m.date === day && m.text);
+    const r = mealRecipe(meal);
+    if (r && !ids.includes(r.id)) ids.push(r.id);
+    const rel = D.relativeLabel(day);
+    const label = rel === 'Heute' || rel === 'Morgen' ? rel : `${D.WD_SHORT[D.isoWeekday(day) - 1]} ${D.fromKey(day).getDate()}.`;
+    return `<div class="plan-day ${meal ? '' : 'free'}">
+      <button class="plan-open" data-action="${r ? 'open-recipe' : 'pick-recipe'}" data-id="${r?.id || ''}" data-day="${day}">
+        <span class="pd-day">${esc(label)}</span>
+        <span class="pd-meal">${
+          meal ? `<span class="pd-emoji">${r ? recipeEmoji(r) : ic('meal')}</span>${esc(meal.text)}` : `${ic('plus')}Essen planen`
+        }</span>
+      </button>
+      ${meal ? `<button class="icon-btn" data-action="pick-recipe" data-day="${day}" aria-label="Essen ändern">${ic('pencil')}</button>` : ''}
+    </div>`;
+  });
+  return `<section class="week-plan">
+    <div class="section-head"><h2>Die nächsten 7 Tage</h2>${
+      ids.length ? `<button class="link" data-action="ingredients" data-ids="${ids.join(',')}">${ic('einkauf')}Zutaten für alle (${ids.length})</button>` : ''
+    }</div>
+    <div class="card plan-card">${rows.join('')}</div>
+  </section>`;
+}
+
 function viewKochbuch() {
   if (state.data.missing?.includes('recipes')) {
     return '<div class="banner">Datenbank-Update nötig: bitte supabase/update-5.sql in Supabase ausführen.</div>';
@@ -1464,6 +1494,8 @@ function viewKochbuch() {
     f === 'alle' ? true : f === 'fav' ? r.favorite : f === 'eigene' ? r.own : r.category === f
   );
   return `
+    ${weekMealPlan()}
+    <h2 class="all-recipes">Alle Gerichte</h2>
     <div class="card add-item">
       <input type="search" id="recipe-search" placeholder="Gericht suchen …" autocomplete="off" />
       <button class="btn primary" data-action="new-recipe" aria-label="Eigenes Gericht anlegen">${ic('plus')}</button>
@@ -1670,7 +1702,8 @@ function splitAmount(text) {
 function addItem(text, { countUse = true } = {}) {
   const { name, amount } = splitAmount(text);
   const category = classify(name, state.data.products);
-  save('shopping_items', { name, category, done: false, ...(amount ? { amount } : {}) });
+  const shop = state.view === 'einkauf' && state.shopFilter;
+  save('shopping_items', { name, category, done: false, ...(amount ? { amount } : {}), ...(shop ? { shop } : {}) });
   if (countUse) rememberProduct(name, category);
 }
 
@@ -1720,44 +1753,66 @@ function categoryHint(name) {
   return `${c.icon} ${c.label}`;
 }
 
+// Laden eines Artikels (Datenbank-Vorgabe ist "Rewe")
+const shopOf = (i) => (i.shop || 'Rewe').trim();
+const COMMON_SHOPS = ['Rewe', 'Edeka', 'Aldi', 'Lidl', 'Kaufland', 'dm', 'Rossmann', 'Bäcker', 'Metzger', 'Wochenmarkt', 'Drogerie', 'Apotheke'];
+
 function viewEinkauf() {
   const items = state.data.shopping_items;
   const quick = quickItems();
-  const groups = CATEGORIES.map((cat) => {
-    const list = items
-      .filter((i) => itemCategory(i) === cat.id)
-      .sort((a, b) => a.done - b.done || a.name.localeCompare(b.name));
-    if (!list.length) return '';
-    const open = list.filter((i) => !i.done).length;
-    return `
-      <section>
-        <h2 class="cat-head"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted small">${open || ic('check')}</span></h2>
-        <ul class="card shop-list" data-longpress="item">
-          ${list
-            .map(
-              (i) => `<li class="${i.done ? 'done' : ''}">
-                <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? ic('check') : ''}</button>
-                <span class="name" data-action="toggle-item" data-id="${i.id}">${esc(i.name)}${
-                  i.amount ? ` <span class="amount">${esc(i.amount)}</span>` : ''
-                }${i.note ? `<span class="item-note">${esc(i.note)}</span>` : ''}</span>
-                <button class="icon-btn" data-action="edit-item" data-id="${i.id}" aria-label="Menge, Notiz oder Kategorie ändern">${ic('more')}</button>
-              </li>`
-            )
-            .join('')}
-        </ul>
-      </section>`;
-  }).join('');
+  const open = items.filter((i) => !i.done);
+  const done = items.filter((i) => i.done);
+  // Läden der offenen Artikel, häufigster zuerst; Filter nur, wenn es mehrere gibt
+  const counts = new Map();
+  for (const i of open) counts.set(shopOf(i), (counts.get(shopOf(i)) || 0) + 1);
+  const shops = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (state.shopFilter && !counts.has(state.shopFilter)) state.shopFilter = null;
+  const sf = state.shopFilter;
+  const mainShop = shops[0]?.[0];
+  const visible = open.filter((i) => !sf || shopOf(i) === sf);
 
-  const anyOpen = items.some((i) => !i.done);
+  const row = (i) => `<li class="${i.done ? 'done' : ''}">
+      <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? ic('check') : ''}</button>
+      <span class="name" data-action="toggle-item" data-id="${i.id}">${esc(i.name)}${
+        i.amount ? ` <span class="amount">${esc(i.amount)}</span>` : ''
+      }${!i.done && !sf && shops.length > 1 && shopOf(i) !== mainShop ? ` <span class="shop-tag">${esc(shopOf(i))}</span>` : ''}${
+        i.note ? `<span class="item-note">${esc(i.note)}</span>` : ''
+      }</span>
+      <button class="icon-btn" data-action="edit-item" data-id="${i.id}" aria-label="Menge, Notiz, Laden oder Kategorie ändern">${ic('more')}</button>
+    </li>`;
+
+  const groups = CATEGORIES.map((cat) => {
+    const list = visible.filter((i) => itemCategory(i) === cat.id).sort((a, b) => a.name.localeCompare(b.name));
+    if (!list.length) return '';
+    return `<div class="cat-sub"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted">${list.length}</span></div>
+      <ul class="shop-list" data-longpress="item">${list.map(row).join('')}</ul>`;
+  }).join('');
 
   return `
     ${state.data.missing?.includes('products') ? '<div class="banner">Datenbank-Update nötig: bitte supabase/update-2.sql in Supabase ausführen.</div>' : ''}
     <form class="card add-item" data-form="add-item">
-      <input name="name" placeholder="Was fehlt? z. B. 2 kg Äpfel" autocomplete="off" autocorrect="off" enterkeyhint="done" required />
+      <input name="name" placeholder="${sf ? `Was fehlt bei ${esc(sf)}?` : 'Was fehlt? z. B. 2 kg Äpfel'}" autocomplete="off" autocorrect="off" enterkeyhint="done" required />
       <button class="btn primary" type="submit" aria-label="Hinzufügen">${ic('plus')}</button>
     </form>
     <div class="suggest" id="suggest"></div>
-    ${groups || '<p class="empty">Die Liste ist leer.</p>'}
+    ${
+      shops.length > 1
+        ? `<div class="chip-row shop-filter">
+            <button class="filter-chip ${sf ? '' : 'on'}" data-action="shop-filter" data-shop="">Alle <span class="n">${open.length}</span></button>
+            ${shops.map(([s, n]) => `<button class="filter-chip ${sf === s ? 'on' : ''}" data-action="shop-filter" data-shop="${esc(s)}">${esc(s)} <span class="n">${n}</span></button>`).join('')}
+          </div>`
+        : ''
+    }
+    ${groups ? `<div class="card shop-card">${groups}</div>` : `<p class="empty">${items.length ? 'Alles erledigt.' : 'Die Liste ist leer.'}</p>`}
+    ${
+      done.length
+        ? `<details class="done-box">
+            <summary><span>Erledigt <span class="muted">${done.length}</span></span>${ic('down', 'sum-ic')}</summary>
+            <ul class="card shop-list" data-longpress="item">${[...done].sort((a, b) => a.name.localeCompare(b.name)).map(row).join('')}</ul>
+            <button class="btn ghost wide" data-action="clear-done">Erledigte entfernen</button>
+          </details>`
+        : ''
+    }
     ${
       quick.length
         ? `<section><h2>Häufig gekauft</h2><div class="quick">${quick
@@ -1768,8 +1823,7 @@ function viewEinkauf() {
         : ''
     }
     <div class="shop-actions">
-      ${anyOpen ? `<button class="btn ghost" data-action="copy-list">${ic('copy')}Liste kopieren</button>` : ''}
-      ${items.some((i) => i.done) ? '<button class="btn ghost" data-action="clear-done">Erledigte entfernen</button>' : ''}
+      ${open.length ? `<button class="btn ghost" data-action="copy-list">${ic('copy')}Liste kopieren</button>` : ''}
     </div>`;
 }
 
@@ -1781,6 +1835,8 @@ function itemForm(item) {
       <label>Menge<input name="amount" value="${esc(item.amount || '')}" placeholder="z. B. 2 kg, 6 Stück" /></label>
       <label>Notiz<input name="note" value="${esc(item.note || '')}" placeholder="z. B. Bio" /></label>
     </div>
+    <label>Laden<input name="shop" value="${esc(shopOf(item))}" list="shop-list" autocomplete="off" /></label>
+    <datalist id="shop-list">${[...new Set([...state.data.shopping_items.map(shopOf), ...COMMON_SHOPS])].map((x) => `<option value="${esc(x)}"></option>`).join('')}</datalist>
     <details class="more-opts cat-opts">
       <summary>Kategorie ändern <span class="muted small">(${esc(categoryOf(current).icon + ' ' + categoryOf(current).label)})</span>${ic('down', 'sum-ic')}</summary>
       <div class="more-body">
@@ -1805,6 +1861,7 @@ function itemForm(item) {
         category,
         amount: f.get('amount').trim() || null,
         note: f.get('note').trim() || null,
+        shop: f.get('shop').trim() || 'Rewe',
       });
       rememberProduct(name, category, { countUse: false });
       closeSheet();
@@ -3574,12 +3631,16 @@ const actions = {
     addItem(d.name);
     toast(`${d.name} hinzugefügt`);
   },
+  'shop-filter': (d) => {
+    state.shopFilter = d.shop || null;
+    render();
+  },
   'clear-done': () => {
     const done = state.data.shopping_items.filter((i) => i.done).map((i) => i.id);
     removeWithUndo('shopping_items', done, `${done.length} erledigte entfernt`);
   },
   'copy-list': async () => {
-    const open = state.data.shopping_items.filter((i) => !i.done);
+    const open = state.data.shopping_items.filter((i) => !i.done && (!state.shopFilter || shopOf(i) === state.shopFilter));
     const text = CATEGORIES.flatMap((c) =>
       open.filter((i) => itemCategory(i) === c.id).map((i) => (i.amount ? `${i.name} (${i.amount})` : i.name))
     ).join('\n');

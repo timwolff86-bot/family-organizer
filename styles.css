@@ -4080,3 +4080,146 @@ details[open] > summary .sum-ic {
 .month {
   margin-bottom: 4px;
 }
+
+/* ===== Einkauf: eine durchgehende, dichtere Liste ===== */
+.shop-filter {
+  margin: 10px 0 0;
+}
+.filter-chip .n {
+  opacity: 0.65;
+  font-weight: 500;
+  margin-left: 2px;
+}
+.shop-card {
+  margin-top: 12px;
+  padding-bottom: 4px;
+}
+.cat-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.cat-sub:first-child {
+  border-top: 0;
+}
+.cat-sub .cat-icon {
+  font-size: 15px;
+}
+.cat-sub .muted {
+  font-weight: 500;
+}
+.shop-card .shop-list li {
+  padding: 4px 6px 4px 12px;
+  border-bottom: 0;
+  min-height: 44px;
+}
+.shop-card .shop-list .check,
+.done-box .shop-list .check {
+  width: 24px;
+  height: 24px;
+}
+.shop-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--line);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.done-box {
+  margin-top: 14px;
+}
+.done-box summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.done-box summary::-webkit-details-marker {
+  display: none;
+}
+.done-box[open] .sum-ic {
+  transform: rotate(180deg);
+}
+.done-box .shop-list li {
+  padding: 4px 6px 4px 12px;
+  min-height: 44px;
+}
+.done-box .btn {
+  margin-top: 10px;
+}
+
+/* ===== Kochbuch: die nächsten 7 Tage ===== */
+.plan-card {
+  padding: 2px 0;
+}
+.plan-day {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-right: 4px;
+}
+.plan-day:first-child {
+  border-top: 0;
+}
+.plan-open {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  padding: 10px 0 10px 14px;
+  text-align: left;
+  color: inherit;
+  min-height: 44px;
+}
+.pd-day {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pd-meal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-emoji {
+  flex: none;
+  font-size: 18px;
+}
+.pd-emoji .ic {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+.plan-day.free .pd-meal {
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+.plan-day.free .pd-meal .ic {
+  width: 16px;
+  height: 16px;
+}
+.plan-day .icon-btn .ic {
+  width: 17px;
+  height: 17px;
+  color: var(--muted);
+}
+.all-recipes {
+  margin-top: 22px;
+}
