@@ -1335,8 +1335,9 @@ function viewMonat() {
     const dots = [];
     const barred = new Set(lanes.flat().map((e) => e.id));
     for (const o of eventsOn(day)) if (!o.cancelled && !barred.has(o.ev.id)) dots.push(member(eventPeople(o.ev)[0])?.color || 'var(--muted)');
-    const rem = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && !x.undated).length;
-    const tsk = tasksOn(day, { filter: false }).filter((x) => !x.overdue && !x.undated).length;
+    // Wiederkehrende Aufgaben/Erinnerungen bekommen keinen Punkt (sonst hätte jeder Tag einen)
+    const rem = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && !x.undated && !x.recurring).length;
+    const tsk = tasksOn(day, { filter: false }).filter((x) => !x.overdue && !x.undated && !x.recurring).length;
     const bd = birthdaysOn(day).length;
     return [
       ...dots.slice(0, 3).map((c) => `<i style="background:${esc(c)}"></i>`),
@@ -2087,7 +2088,7 @@ function viewMehr() {
           events.length
             ? events
                 .map(
-                  (e) => `<li><button data-action="edit-event" data-id="${e.id}">
+                  (e) => `<li><button data-action="event-edit" data-id="${e.id}">
                     <span class="grow">${esc(e.title)} ${chips(eventPeople(e))}</span>
                     <span class="muted small">${esc(when(e))}${e.start_time ? ` · ${D.hm(e.start_time)}` : ''}</span>
                   </button></li>`
@@ -2411,8 +2412,8 @@ function weekStrip() {
   const busy = (day) =>
     birthdaysOn(day).length > 0 ||
     eventsOn(day).some((o) => !o.cancelled) ||
-    tasksOn(day, { filter: false, kind: 'erinnerung' }).some((x) => !x.done && !x.overdue) ||
-    tasksOn(day, { filter: false }).some((x) => !x.done && !x.overdue && !x.undated);
+    tasksOn(day, { filter: false, kind: 'erinnerung' }).some((x) => !x.done && !x.overdue && !x.recurring) ||
+    tasksOn(day, { filter: false }).some((x) => !x.done && !x.overdue && !x.undated && !x.recurring);
   return `
     <div class="week-strip">
       <button class="ws-nav" data-action="prev-week-day" aria-label="Vorherige Woche">${ic('left')}</button>
@@ -2636,6 +2637,53 @@ const remindSelect = (v) =>
   `<label>Push-Erinnerung<select name="remind">${REMIND_OPTIONS.map(
     ([k, l]) => `<option value="${k}" ${String(v ?? '') === k ? 'selected' : ''}>${l}</option>`
   ).join('')}</select></label>`;
+
+// Termin ansehen (ohne Bearbeiten): Wann, Wo, Wer, Notiz – "Bearbeiten" oben rechts
+function eventView(ev, day) {
+  if (!ev) return;
+  const weekly = ev.weekdays?.length > 0;
+  const o = day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
+  const series = ev.series_id ? state.data.events.find((x) => x.id === ev.series_id) : null;
+  const start = D.hm(ev.start_time);
+  const end = D.hm(ev.end_time);
+  const time = ev.all_day || !start ? 'ganztägig' : end ? `${start}–${end} Uhr` : `${start} Uhr`;
+  const multi = !weekly && ev.end_date && ev.end_date > ev.date;
+  const when = multi
+    ? `${D.formatShort(ev.date)}${start ? `, ${start}` : ''} – ${D.formatShort(ev.end_date)}${end ? `, ${end}` : ''}${o ? ` <span class="muted">(Tag ${o.dayNo} von ${o.days})</span>` : ''}`
+    : `${day || ev.date ? esc(D.formatLong(day || ev.date)) : ''}${day || ev.date ? '<br />' : ''}${esc(time)}`;
+  const people = eventPeople(ev).map((id) => member(id)).filter(Boolean);
+  const colors = people.map((m) => m.color);
+  const line = (icon, html) => `<div class="evv-line">${ic(icon)}<div>${html}</div></div>`;
+  const mapUrl = ev.location ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ev.location)}` : '';
+
+  $('#sheet-root').innerHTML = `
+    <div class="backdrop" data-action="close-sheet"></div>
+    <div class="sheet compact ev-view" role="dialog" aria-label="${esc(ev.title)}">
+      <div class="sheet-head">
+        <span class="grabber" aria-hidden="true"></span>
+        <button type="button" class="link" data-action="close-sheet">Schließen</button>
+        <strong></strong>
+        <button type="button" class="link" data-action="event-edit" data-id="${ev.id}" data-day="${day || ''}">Bearbeiten</button>
+      </div>
+      <div class="sheet-body">
+        <h2 class="evv-title"><span class="evv-dot" style="background:${esc(colors[0] || 'var(--accent)')}"></span>${esc(ev.title)}</h2>
+        ${o?.cancelled ? `<p class="banner warn">Fällt am ${esc(D.formatShort(day))} aus.</p>` : ''}
+        ${series ? `<p class="muted small">Einmalig geändert – sonst ${esc(rhythmShort(series))}.</p>` : ''}
+        ${line('clock', when)}
+        ${weekly ? line('repeat', esc(everyText(ev.weekdays) + (ev.end_date ? ` bis ${D.formatDayMonth(ev.end_date)}` : ''))) : ''}
+        ${ev.location ? line('pin', `<a href="${esc(mapUrl)}" target="_blank" rel="noopener">${esc(ev.location)}</a>`) : ''}
+        ${people.length ? line('users', `<span class="evv-people">${people.map((m) => `<span>${avatar(m, 'xs')}${esc(m.name)}</span>`).join('')}</span>`) : ''}
+        ${ev.notes ? line('pencil', `<span class="evv-notes">${esc(ev.notes)}</span>`) : ''}
+        ${
+          o && o.weekly
+            ? `<button type="button" class="btn ghost wide evv-cancel" data-action="toggle-cancel" data-id="${ev.id}" data-day="${day}">
+                ${o.cancelled ? `Findet am ${esc(D.formatShort(day))} doch statt` : `Fällt am ${esc(D.formatShort(day))} aus`}</button>`
+            : ''
+        }
+      </div>
+    </div>`;
+  sheetOpened();
+}
 
 function eventForm(ev, day) {
   const isNew = !ev;
@@ -3323,7 +3371,8 @@ const actions = {
     const days = d.days.split(',');
     el.closest('form').querySelectorAll('input[name="wd"]').forEach((i) => (i.checked = days.includes(i.value)));
   },
-  'edit-event': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day),
+  'edit-event': (d) => eventView(state.data.events.find((e) => e.id === d.id), d.day || null),
+  'event-edit': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day || undefined),
   'edit-member': (d) => memberForm(member(d.id)),
   'new-birthday': () => birthdayForm(null),
   'edit-birthday': (d) => {
@@ -3442,7 +3491,7 @@ const actions = {
   },
   'search-open': (d) => {
     state.searchBack = true;
-    if (d.kind === 'termin') eventForm(state.data.events.find((e) => e.id === d.id), d.day);
+    if (d.kind === 'termin') eventView(state.data.events.find((e) => e.id === d.id), d.day || null);
     else if (d.kind === 'task') actions['edit-task'](d);
     else if (d.kind === 'geburtstag') actions['edit-birthday'](d);
   },
