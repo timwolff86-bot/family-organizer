@@ -41,7 +41,7 @@ const state = {
   land: lsGet('fo-land') ?? 'NW', // Bundesland für Ferien/Feiertage, '' = aus
   pendingRender: false,
   personFilter: null, // Personenansicht: nur Termine/Erinnerungen/Aufgaben
-  personRange: [14, 31, 92].includes(Number(lsGet('fo-person-range'))) ? Number(lsGet('fo-person-range')) : 14,
+  personRange: 14, // Personenansicht: Tage ab heute (14 → 31 → 92 über "mehr zeigen")
 };
 
 // Darstellung: 'auto' (wie das Handy), 'light' oder 'dark'
@@ -926,11 +926,6 @@ function viewHeute() {
 }
 
 // Übersicht einer Person: alles der nächsten 14 Tage
-const PERSON_RANGES = [
-  [14, '2 Wochen'],
-  [31, '1 Monat'],
-  [92, '3 Monate'],
-];
 
 // Aufgaben einer Person in dieser Woche (Montag bis heute): wie viele erledigt, was liegen blieb
 function weekTaskStats(id) {
@@ -959,14 +954,25 @@ function weekTaskCard(id) {
   const { total, done, missed } = weekTaskStats(id);
   if (!total) return '';
   const pct = Math.round((done / total) * 100);
+  // Gleiche Aufgabe nur einmal: "Spülmaschine ausräumen 6× (Mo–Sa)"
+  const groups = new Map();
+  for (const x of missed) {
+    if (!groups.has(x.t.id)) groups.set(x.t.id, { t: x.t, days: [] });
+    groups.get(x.t.id).days.push(D.isoWeekday(x.day));
+  }
   return `
     <div class="card pad week-tasks">
       <div class="wt-head"><span>Aufgaben diese Woche</span><b>${done} von ${total} erledigt</b></div>
       <div class="wt-bar" role="img" aria-label="${pct} Prozent erledigt"><i style="width:${pct}%"></i></div>
       ${
-        missed.length
-          ? `<p class="wt-missed"><span class="muted">Nicht erledigt:</span> ${missed
-              .map((x) => `<button class="link" data-action="edit-task" data-id="${x.t.id}">${esc(x.t.title)}</button> <span class="muted">(${D.WD_SHORT[D.isoWeekday(x.day) - 1]})</span>`)
+        groups.size
+          ? `<p class="wt-missed"><span class="muted">Liegen geblieben:</span> ${[...groups.values()]
+              .map(
+                (g) =>
+                  `<button class="link" data-action="edit-task" data-id="${g.t.id}">${esc(g.t.title)}</button> <span class="muted">${
+                    g.days.length > 1 ? `${g.days.length}× (${weekdaysText(g.days)})` : `(${D.WD_SHORT[g.days[0] - 1]})`
+                  }</span>`
+              )
               .join(', ')}</p>`
           : done === total
             ? '<p class="wt-missed muted">Alles erledigt – super!</p>'
@@ -975,46 +981,84 @@ function weekTaskCard(id) {
     </div>`;
 }
 
+const PERSON_STEPS = [14, 31, 92];
+
+// Eine Zeile der Personenliste: Tag links (nur bei der ersten Zeile des Tages), Titel, Details
+function personRow(day, first, it, id) {
+  const d = D.fromKey(day);
+  const dayLabel = first ? `${D.WD_SHORT[D.isoWeekday(day) - 1]} ${d.getDate()}.` : '';
+  const others = (ids) => {
+    const rest = ids.filter((x) => x !== id).map((x) => member(x)?.name).filter(Boolean);
+    if (members().length > 2 && members().every((m) => ids.includes(m.id))) return 'ganze Familie';
+    return rest.length ? `mit ${rest.join(', ')}` : '';
+  };
+  if (it.type === 'ev') {
+    const { o } = it;
+    const { ev } = o;
+    const sub = o.cancelled
+      ? ['Fällt aus']
+      : [
+          o.multi ? esc(rangeLabel(o)) : esc(o.time === 'Ganztägig' ? 'ganztägig' : o.time),
+          ev.location ? `${ic('pin')}${esc(ev.location)}` : '',
+          esc(others(eventPeople(ev))),
+        ].filter(Boolean);
+    return `<div class="frow prow ${first ? 'first' : ''} ${o.cancelled ? 'off' : ''}">
+      <button class="fr-open" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
+        <span class="fr-time">${dayLabel}</span>
+        <span class="fr-body"><span class="fr-title">${esc(ev.title)}${o.multi && !o.cancelled ? '' : dayPill(o)}${o.cancelled ? '' : changedTag(o)}</span>
+        ${sub.length ? `<span class="fr-sub">${sub.join(' · ')}</span>` : ''}</span>
+      </button>
+    </div>`;
+  }
+  const { x } = it;
+  const { t } = x;
+  const rem = isReminder(t);
+  const sub = [
+    rem ? 'Erinnerung' : 'Aufgabe',
+    t.due_time ? D.hm(t.due_time) : '',
+    x.overdue ? `<span class="red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
+    esc(others(peopleOf(t))),
+  ].filter(Boolean);
+  return `<div class="frow prow ${first ? 'first' : ''} ${x.done ? 'done' : ''}">
+      <button class="fr-open" data-action="edit-task" data-id="${t.id}">
+        <span class="fr-time">${dayLabel}</span>
+        <span class="fr-body"><span class="fr-title title">${rem ? ic('bell') : ''}${esc(t.title)}</span><span class="fr-sub">${sub.join(' · ')}</span></span>
+      </button>
+      <button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>
+    </div>`;
+}
+
 function viewPerson() {
   const id = state.personId;
   const today = D.todayKey();
   const span = state.personRange;
-  const long = span > 14; // längere Zeiträume: feste Wochentermine nur einmal oben
   const f = state.personFilter; // null | 'events' | 'reminders' | 'tasks'
   const show = (k) => !f || f === k;
   const mine = (ids) => ids.includes(id);
-  const counts = { events: 0, reminders: 0, tasks: 0 };
-  const days = [];
+  const has = { events: false, reminders: false, tasks: false };
   const seriesEvents = new Map();
   const seriesTasks = new Map();
+  const days = [];
   for (let i = 0; i < span; i++) {
     const day = D.addDays(today, i);
-    let events = eventsOn(day).filter((o) => mine(eventPeople(o.ev)));
-    let reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => mine(peopleOf(x.t)));
-    let tasks = tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)));
-    counts.events += events.filter((o) => !o.cancelled).length;
-    counts.reminders += reminders.filter((x) => !x.done).length;
-    counts.tasks += tasks.filter((x) => !x.done).length;
-    if (long) {
-      // Regelmäßiges (ohne Ausfälle) wandert in den Block "Regelmäßig"
-      for (const o of events) if (o.weekly && !o.cancelled) seriesEvents.set(o.ev.id, o.ev);
-      for (const x of [...reminders, ...tasks]) if (x.recurring && !x.missed) seriesTasks.set(x.t.id, x.t);
-      // Mehrtägiges nur am ersten Tag (bzw. heute, wenn es schon läuft)
-      events = events.filter((o) => (!o.weekly || o.cancelled) && (!o.multi || o.day === o.ev.date || i === 0));
-      reminders = reminders.filter((x) => !x.recurring);
-      tasks = tasks.filter((x) => !x.recurring || x.missed);
-    }
-    const items = [...(show('reminders') ? reminders : []), ...(show('tasks') ? tasks : [])];
-    const evs = show('events') ? events : [];
-    if (evs.length || items.length) days.push({ day, events: evs, items });
+    const events = eventsOn(day).filter((o) => mine(eventPeople(o.ev)));
+    const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => mine(peopleOf(x.t)));
+    const tasks = tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)) && !x.missed);
+    if (events.length) has.events = true;
+    if (reminders.length) has.reminders = true;
+    if (tasks.length) has.tasks = true;
+    // Regelmäßiges steht einmal oben; in der Liste nur Ausfälle und heute noch Offenes
+    for (const o of events) if (o.weekly) seriesEvents.set(o.ev.id, o.ev);
+    for (const x of [...reminders, ...tasks]) if (x.recurring) seriesTasks.set(x.t.id, x.t);
+    const items = [
+      ...(show('events') ? events : [])
+        .filter((o) => (!o.weekly || o.cancelled) && (!o.multi || o.day === o.ev.date || i === 0))
+        .map((o) => ({ type: 'ev', o, sort: o.sort })),
+      ...(show('reminders') ? reminders : []).filter((x) => !x.recurring).map((x) => ({ type: 'task', x, sort: D.hm(x.t.due_time) || '' })),
+      ...(show('tasks') ? tasks : []).filter((x) => !x.recurring).map((x) => ({ type: 'task', x, sort: D.hm(x.t.due_time) || '' })),
+    ].sort((a, b) => a.sort.localeCompare(b.sort));
+    if (items.length) days.push({ day, items });
   }
-  const label = (day) => {
-    const rel = D.relativeLabel(day);
-    return ['Heute', 'Morgen', 'Übermorgen'].includes(rel) ? `${rel} · ${D.formatShort(day)}` : D.formatLong(day);
-  };
-  const tile = (k, n, text) =>
-    `<button class="${f === k ? 'on' : ''} ${f && f !== k ? 'off' : ''}" data-action="person-filter" data-f="${k}" aria-pressed="${f === k}">
-      <b>${n}</b><span>${text}</span></button>`;
 
   const regular = [
     ...(show('events') ? [...seriesEvents.values()] : []).map((ev) => {
@@ -1034,34 +1078,30 @@ function viewPerson() {
         </button></li>`
       ),
   ];
+  const kinds = [
+    ['', 'Alles'],
+    ['events', 'Termine'],
+    ['reminders', 'Erinnerungen'],
+    ['tasks', 'Aufgaben'],
+  ].filter(([k]) => !k || has[k] || f === k);
+  const label = { 14: 'nächste 2 Wochen', 31: 'nächster Monat', 92: 'nächste 3 Monate' }[span] || `nächste ${span} Tage`;
+  const next = PERSON_STEPS.find((n) => n > span);
   const what = { events: 'Termine', reminders: 'Erinnerungen', tasks: 'Aufgaben' }[f] || 'Einträge';
   return `
     ${weekTaskCard(id)}
-    <div class="person-stats">
-      ${tile('events', counts.events, 'Termine')}
-      ${tile('reminders', counts.reminders, 'Erinnerungen')}
-      ${tile('tasks', counts.tasks, 'Aufgaben')}
-    </div>
-    <div class="seg wide person-range">
-      ${PERSON_RANGES.map(([n, l]) => `<button class="${span === n ? 'on' : ''}" data-action="person-range" data-r="${n}">${l}</button>`).join('')}
-    </div>
-    ${f ? `<p class="muted small center">Nur ${what} · <button class="link" data-action="person-filter" data-f="${f}">alle zeigen</button></p>` : ''}
+    ${kinds.length > 2 ? `<div class="chip-row person-kinds">${kinds
+      .map(([k, l]) => `<button class="filter-chip ${(f || '') === k ? 'on' : ''}" data-action="person-filter" data-f="${k}" aria-pressed="${(f || '') === k}">${l}</button>`)
+      .join('')}</div>` : ''}
     ${regular.length ? `<section><h2>Regelmäßig</h2><ul class="card list reg-list">${regular.join('')}</ul></section>` : ''}
-    ${
-      days.length
-        ? days
-            .map(
-              (d) => `<section>
-                <h2>${esc(label(d.day))}</h2>
-                ${d.events.map(eventCard).join('')}
-                ${d.items.length ? `<ul class="tasks card">${d.items.map(taskRow).join('')}</ul>` : ''}
-              </section>`
-            )
-            .join('')
-        : regular.length
-          ? ''
-          : `<p class="empty center">Keine ${what} in diesem Zeitraum.</p>`
-    }`;
+    <section>
+      <h2>${label[0].toUpperCase() + label.slice(1)}</h2>
+      ${
+        days.length
+          ? `<div class="card flow plist">${days.map((d) => d.items.map((it, i) => personRow(d.day, i === 0, it, id)).join('')).join('')}</div>`
+          : `<p class="empty">Keine weiteren ${what} ${span === 14 ? 'in den nächsten 2 Wochen' : 'in diesem Zeitraum'}.</p>`
+      }
+      ${next ? `<p class="center person-more"><button class="link" data-action="person-range" data-r="${next}">${next === 31 ? '1 Monat' : '3 Monate'} zeigen</button></p>` : ''}
+    </section>`;
 }
 
 // Kalender-Liste: ab heute fortlaufend, oben "Frühere Tage", unten lädt beim Scrollen nach
@@ -1153,18 +1193,22 @@ function listDay(day) {
             return lrow('', `🎂 ${esc(b.name)}${age ? ` <span class="muted">(${age})</span>` : ''}`, [], 'bd');
           })
           .join('')}
-        ${events
-          .map((o) =>
-            lrow(
-              startLabel(o),
-              `${esc(o.ev.title)}${o.cancelled ? '' : dayPill(o)}${o.cancelled ? '' : changedTag(o)}`,
-              eventPeople(o.ev),
-              o.cancelled ? 'off' : ''
-            )
-          )
-          .join('')}
-        ${reminders
-          .map((x) => lrow(x.t.due_time ? D.hm(x.t.due_time) : '', `${ic('bell')}${esc(x.t.title)}`, peopleOf(x.t), `rem ${x.done ? 'off' : ''}`))
+        ${[
+          // Termine und Erinnerungen gemeinsam nach Uhrzeit, Ausgefallenes ans Ende
+          ...events.map((o) => ({
+            off: o.cancelled,
+            sort: o.sort,
+            html: lrow(startLabel(o), `${esc(o.ev.title)}${o.cancelled ? '' : dayPill(o)}${o.cancelled ? '' : changedTag(o)}`, eventPeople(o.ev), o.cancelled ? 'off' : ''),
+          })),
+          ...reminders.map((x) => ({
+            off: false,
+            rem: true,
+            sort: D.hm(x.t.due_time) || '',
+            html: lrow(x.t.due_time ? D.hm(x.t.due_time) : '', `${ic('bell')}${esc(x.t.title)}`, peopleOf(x.t), `rem ${x.done ? 'off' : ''}`),
+          })),
+        ]
+          .sort((a, b) => a.off - b.off || a.sort.localeCompare(b.sort) || !!a.rem - !!b.rem)
+          .map((r) => r.html)
           .join('')}
         ${open ? lrow('', `${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}`, [], 'tasks') : ''}
       </div>
@@ -3331,16 +3375,16 @@ const actions = {
     toast(lines.length ? `${lines.length} ${lines.length === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` : 'Nichts ausgewählt');
   },
   'person-filter': (d) => {
-    state.personFilter = state.personFilter === d.f ? null : d.f;
+    state.personFilter = !d.f || state.personFilter === d.f ? null : d.f;
     render();
   },
   'person-range': (d) => {
     state.personRange = Number(d.r);
-    lsSet('fo-person-range', d.r);
     render();
   },
   'open-person': (d) => {
     if (state.personId !== d.id) state.personFilter = null;
+    state.personRange = 14;
     if (state.view !== 'person') {
       state.prevView = state.view;
       navPush();

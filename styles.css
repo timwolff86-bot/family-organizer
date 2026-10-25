@@ -3948,3 +3948,32 @@ details[open] > summary .sum-ic {
   flex: none;
   accent-color: var(--accent);
 }
+
+/* ===== Personenansicht kompakt ===== */
+.person-kinds {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin: 14px 0 4px;
+  scrollbar-width: none;
+}
+.plist .prow {
+  padding-right: 12px;
+}
+.plist .prow:not(.first) {
+  border-top-color: transparent;
+}
+.plist .prow:not(.first) .fr-open {
+  padding-top: 3px;
+}
+.plist .prow .fr-time {
+  font-weight: 600;
+  color: var(--text);
+}
+.plist .fr-sub .red {
+  color: var(--red);
+  font-weight: 600;
+}
+.person-more {
+  margin: 12px 0 0;
+}
