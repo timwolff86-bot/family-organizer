@@ -1396,7 +1396,7 @@ function monthAgenda(day) {
       ${
         meal?.text
           ? `<button class="card ag-event" data-action="${meal.recipe_id ? 'open-recipe' : 'pick-recipe'}" data-id="${meal.recipe_id || ''}" data-day="${day}">
-              <span class="ag-time">${ic('meal')}</span><span class="ag-title">${esc(meal.text)}</span></button>`
+              <span class="ag-time">${mealIcon(meal)}</span><span class="ag-title">${esc(meal.text)}</span></button>`
           : ''
       }
       ${empty ? '<p class="empty">Nichts eingetragen.</p>' : ''}
@@ -1406,6 +1406,26 @@ function monthAgenda(day) {
 /* ================= Essen & Kochbuch ================= */
 
 const mealRecipe = (meal) => (meal?.recipe_id ? state.data.recipes.find((r) => r.id === meal.recipe_id) : null);
+
+// Kein Gericht: "Reste" oder "Auswärts essen" (als Text gespeichert, auch "Auswärts: bei Oma")
+const MEAL_SPECIAL = [
+  { key: 'reste', text: 'Reste', emoji: '🥡', hint: 'Was noch da ist' },
+  { key: 'auswaerts', text: 'Auswärts essen', emoji: '🍽️', hint: 'Restaurant, Oma, Freunde …' },
+];
+function mealSpecial(meal) {
+  const t = normalize(meal?.text || '');
+  if (!t || meal?.recipe_id) return null;
+  if (t === 'reste' || t.startsWith('reste ')) return MEAL_SPECIAL[0];
+  if (/^ausw(ä|ae|a)rts/.test(t) || t === 'essen gehen') return MEAL_SPECIAL[1];
+  return null;
+}
+// Symbol fürs Essen: Rezept, Reste/Auswärts oder neutral
+const mealIcon = (meal) => {
+  const r = mealRecipe(meal);
+  if (r) return recipeEmoji(r);
+  const sp = mealSpecial(meal);
+  return sp ? sp.emoji : ic('meal');
+};
 const recipeEmoji = (r) => r?.emoji || recipeCategory(r?.category).emoji;
 
 // Eingabefeld fürs Essen + Knopf "aus dem Kochbuch wählen"
@@ -1413,7 +1433,7 @@ function mealField(meal, day, placeholder, enter, cls) {
   const r = mealRecipe(meal);
   return `
     <div class="${cls}">
-      <span class="meal-icon ${r ? '' : 'empty'}">${r ? recipeEmoji(r) : ic('meal')}</span>
+      <span class="meal-icon ${r || mealSpecial(meal) ? '' : 'empty'}">${mealIcon(meal)}</span>
       <div class="meal-field ${meal?.text ? 'has-text' : ''}">
         <span class="meal-text" aria-hidden="true">${esc(meal?.text || '')}</span>
         <input class="meal-input" ${cls.includes('card') ? 'id="meal-input"' : ''} data-day="${day}" list="recipe-list"
@@ -1424,7 +1444,7 @@ function mealField(meal, day, placeholder, enter, cls) {
 }
 
 const recipeList = () =>
-  `<datalist id="recipe-list">${state.data.recipes.map((r) => `<option value="${esc(r.title)}"></option>`).join('')}</datalist>`;
+  `<datalist id="recipe-list">${[...MEAL_SPECIAL.map((x) => x.text), ...state.data.recipes.map((r) => r.title)].map((t) => `<option value="${esc(t)}"></option>`).join('')}</datalist>`;
 
 const sortedRecipes = () =>
   [...state.data.recipes].sort((a, b) => b.favorite - a.favorite || a.title.localeCompare(b.title));
@@ -1465,7 +1485,7 @@ function weekMealPlan() {
       <button class="plan-open" data-action="${r ? 'open-recipe' : 'pick-recipe'}" data-id="${r?.id || ''}" data-day="${day}">
         <span class="pd-day">${esc(label)}</span>
         <span class="pd-meal">${
-          meal ? `<span class="pd-emoji">${r ? recipeEmoji(r) : ic('meal')}</span>${esc(meal.text)}` : `${ic('plus')}Essen planen`
+          meal ? `<span class="pd-emoji">${mealIcon(meal)}</span>${esc(meal.text)}` : `${ic('plus')}Essen planen`
         }</span>
       </button>
       ${meal ? `<button class="icon-btn" data-action="pick-recipe" data-day="${day}" aria-label="Essen ändern">${ic('pencil')}</button>` : ''}
@@ -1591,6 +1611,13 @@ function recipePicker(day) {
   openPanel(
     `Essen am ${D.formatShort(day)}`,
     `
+    <div class="meal-special">
+      ${MEAL_SPECIAL.map(
+        (x) => `<button type="button" class="card ms-btn ${normalize(state.data.meals.find((m) => m.date === day)?.text || '') === normalize(x.text) ? 'on' : ''}" data-action="meal-special" data-day="${day}" data-key="${x.key}">
+          <span class="ms-emoji">${x.emoji}</span><span class="ms-text"><b>${x.text}</b><span class="muted small">${x.hint}</span></span></button>`
+      ).join('')}
+    </div>
+    <h3 class="sr-head">Oder ein Gericht</h3>
     <input type="search" id="recipe-search" placeholder="Gericht suchen …" autocomplete="off" />
     <ul class="card list recipes" id="recipe-list-ul">
       ${sortedRecipes().map((r) => recipeRow(r, 'choose-recipe', `data-day="${day}"`)).join('')}
@@ -3585,6 +3612,12 @@ const actions = {
   'pick-recipe': (d) => recipePicker(d.day),
   'choose-recipe': (d) => {
     setMeal(d.day, state.data.recipes.find((x) => x.id === d.id));
+    closeSheet();
+  },
+  'meal-special': (d) => {
+    const x = MEAL_SPECIAL.find((m) => m.key === d.key);
+    if (!x) return;
+    save('meals', { date: d.day, text: x.text, recipe_id: null }, 'date');
     closeSheet();
   },
   'clear-meal': (d) => {

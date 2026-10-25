@@ -4400,3 +4400,37 @@ details[open] > summary .sum-ic {
 .list .bd-month:first-child {
   border-top: 0;
 }
+
+/* Essen: Reste / Auswärts als eigene Wahl */
+.meal-special {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ms-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  text-align: left;
+  border: 1.5px solid transparent;
+  min-height: 64px;
+}
+.ms-btn.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.ms-emoji {
+  font-size: 26px;
+  flex: none;
+}
+.ms-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.ms-text b {
+  font-size: 15px;
+}
