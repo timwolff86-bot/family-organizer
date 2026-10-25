@@ -2875,7 +2875,7 @@ function eventForm(ev, day) {
     <label data-show="once">Datum<input type="date" name="date_once" value="${esc(ev.date || state.date)}" /></label>
     <div class="row" data-show="multi">
       <label>Von<input type="date" name="date_from" value="${esc(ev.date || state.date)}" /></label>
-      <label>Bis<input type="date" name="date_to" value="${esc(multi ? ev.end_date : D.addDays(ev.date || state.date, 1))}" /></label>
+      <label>Bis<input type="date" name="date_to" value="${esc(multi ? ev.end_date : D.addDays(ev.date || state.date, 1))}" min="${esc(D.addDays(ev.date || state.date, 1))}" /></label>
     </div>
     <div data-show="weekly">
       ${occurrence ? '<div class="field-label">Wiederholung</div>' : ''}
@@ -3924,10 +3924,25 @@ document.addEventListener('change', async (e) => {
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
   if (el.name === 'rhythm') updateRhythmVisibility(el.form);
+  // Mehrtägig: "Von" gewählt → "Bis" mindestens auf den Folgetag
+  if (el.name === 'date_from' && el.value && el.form?.elements.date_to) {
+    const to = el.form.elements.date_to;
+    const next = D.addDays(el.value, 1);
+    to.min = next;
+    if (!to.value || to.value <= el.value) to.value = next;
+  }
   // Termin: Beginn gesetzt → Ende eine Stunde später vorschlagen (wenn leer oder davor)
   if (el.name === 'start_time' && el.value && el.form?.elements.end_time && el.form.elements.repeat?.value !== 'multi') {
     const endEl = el.form.elements.end_time;
     if (!endEl.value || endEl.value <= el.value) endEl.value = hmPlus(el.value, 60);
+  }
+  // Von "Ein Tag" auf "Mehrere Tage": gewähltes Datum als Beginn übernehmen
+  if (el.name === 'repeat' && el.value === 'multi' && el.form.elements.date_once?.value && el.form.elements.date_from) {
+    const from = el.form.elements.date_from;
+    const to = el.form.elements.date_to;
+    from.value = el.form.elements.date_once.value;
+    to.min = D.addDays(from.value, 1);
+    if (!to.value || to.value <= from.value) to.value = D.addDays(from.value, 1);
   }
   if (el.name === 'repeat' && el.form.querySelector('[data-time-label]')) {
     const multi = el.value === 'multi';
