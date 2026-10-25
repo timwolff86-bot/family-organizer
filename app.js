@@ -725,7 +725,8 @@ function isLate(x) {
   return D.hm(x.t.due_time) <= `${D.pad(now.getHours())}:${D.pad(now.getMinutes())}`;
 }
 
-function taskRow(x) {
+// stack: Personen als kleine Fotos rechts (Heute) statt als Namens-Etiketten
+function taskRow(x, { stack = false } = {}) {
   const { t } = x;
   const by = x.done && t.done_by && member(t.done_by);
   const badges = [
@@ -735,7 +736,9 @@ function taskRow(x) {
       ? `<span class="tag red">${esc(missedLabel(x.day))} nicht erledigt</span>`
       : x.overdue
         ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
-        : '',
+        : x.missedDay && !x.done
+          ? `<span class="tag red">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
+          : '',
     x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : '',
   ].join('');
   return `
@@ -745,20 +748,118 @@ function taskRow(x) {
       </button>
       <button class="task-main" data-action="edit-task" data-id="${t.id}">
         <span class="title">${esc(t.title)}</span>
-        <span class="meta">${badges}${chips(peopleOf(t))}${by ? `<span class="muted small with-ic">${ic('check')}${esc(by.name)}</span>` : ''}</span>
+        <span class="meta">${badges}${stack ? '' : chips(peopleOf(t))}${by ? `<span class="muted small with-ic">${ic('check')}${esc(by.name)}</span>` : ''}</span>
       </button>
+      ${stack ? avatarStack(peopleOf(t)) : ''}
     </li>`;
 }
 
 /* ================= Ansichten ================= */
 
+const nowHM = () => {
+  const n = new Date();
+  return `${D.pad(n.getHours())}:${D.pad(n.getMinutes())}`;
+};
+const hmPlus = (hm, min) => {
+  const [h, m] = hm.split(':').map(Number);
+  const t = Math.min(h * 60 + m + min, 24 * 60 - 1);
+  return `${D.pad(Math.floor(t / 60))}:${D.pad(t % 60)}`;
+};
+
+// Tagesablauf: Termine und Erinnerungen eines Tages zusammen, nach Uhrzeit
+function flowItems(day) {
+  const isToday = day === D.todayKey();
+  const now = nowHM();
+  const items = [];
+  for (const o of eventsOn(day)) {
+    const { ev } = o;
+    const start = D.hm(ev.start_time);
+    const end = D.hm(ev.end_time);
+    // Vorbei: Ende erreicht (ohne Ende: eine Stunde nach Beginn)
+    let past = false;
+    if (isToday && !o.multi && start) past = (end || hmPlus(start, 60)) <= now;
+    if (isToday && o.multi && day === ev.end_date && end) past = end <= now;
+    items.push({ type: 'ev', o, sort: o.sort, past, off: o.cancelled });
+  }
+  for (const x of tasksOn(day, { filter: false, kind: 'erinnerung' })) {
+    items.push({ type: 'rem', x, sort: D.hm(x.t.due_time) || '', past: x.done });
+  }
+  return items.sort(
+    (a, b) => !!a.off - !!b.off || a.sort.localeCompare(b.sort) || (a.type === 'rem') - (b.type === 'rem') || (a.type === 'ev' ? a.o.ev.title : a.x.t.title).localeCompare(b.type === 'ev' ? b.o.ev.title : b.x.t.title)
+  );
+}
+
+function flowRow(it) {
+  if (it.type === 'ev') {
+    const { o } = it;
+    const { ev } = o;
+    const end = D.hm(ev.end_time);
+    const time = o.multi ? startLabel(o) : ev.all_day || !D.hm(ev.start_time) ? (ev.all_day ? 'ganzt.' : '') : D.hm(ev.start_time);
+    const sub = o.cancelled
+      ? ['Fällt aus']
+      : [
+          ev.location ? `${ic('pin')}${esc(ev.location)}` : '',
+          o.multi ? esc(rangeLabel(o)) : end && D.hm(ev.start_time) ? `bis ${end}` : '',
+        ].filter(Boolean);
+    return `<div class="frow ${it.past ? 'past' : ''} ${o.cancelled ? 'off' : ''}">
+      <button class="fr-open" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
+        <span class="fr-time">${esc(time)}</span>
+        <span class="fr-body">
+          <span class="fr-title">${esc(ev.title)}${o.weekly && !o.cancelled ? `<span class="muted rep">${ic('repeat')}</span>` : ''}${dayPill(o)}${o.cancelled ? '' : changedTag(o)}</span>
+          ${sub.length ? `<span class="fr-sub">${sub.join(' · ')}</span>` : ''}
+          ${ev.notes && !o.cancelled ? `<span class="fr-note">${esc(ev.notes)}</span>` : ''}
+        </span>
+      </button>
+      ${avatarStack(eventPeople(ev))}
+    </div>`;
+  }
+  const { x } = it;
+  const { t } = x;
+  return `<div class="frow rem ${x.done ? 'done' : ''}">
+      <button class="fr-open" data-action="edit-task" data-id="${t.id}">
+        <span class="fr-time ${isLate(x) ? 'late' : ''}">${t.due_time ? D.hm(t.due_time) : ''}</span>
+        <span class="fr-body"><span class="fr-title title">${ic('bell')}${esc(t.title)}${x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : ''}</span></span>
+      </button>
+      ${avatarStack(peopleOf(t))}
+      <button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>
+    </div>`;
+}
+
+function flowList(day) {
+  const items = flowItems(day);
+  if (!items.length) return '';
+  const rows = items.map(flowRow);
+  // Rote Linie "jetzt" vor dem ersten Eintrag, der noch kommt
+  if (day === D.todayKey() && items.some((it) => it.sort)) {
+    const now = nowHM();
+    let i = items.findIndex((it) => !it.off && it.sort && it.sort > now);
+    if (i < 0) i = items.length - items.filter((it) => it.off).length;
+    rows.splice(i, 0, `<div class="now-line" aria-label="Jetzt ${now}"><span>${now}</span></div>`);
+  }
+  return `<section><h2>Tagesablauf</h2><div class="card flow">${rows.join('')}</div></section>`;
+}
+
+// Wiederkehrende Aufgabe heute dran und zuletzt verpasst: nur einmal zeigen, mit Hinweis
+function mergeMissed(list) {
+  const todayIds = new Set(list.filter((x) => x.recurring && !x.missed).map((x) => x.t.id));
+  const out = [];
+  for (const x of list) {
+    if (x.missed && todayIds.has(x.t.id)) {
+      const main = list.find((y) => y.t.id === x.t.id && !y.missed);
+      main.missedDay = x.day;
+      continue;
+    }
+    out.push(x);
+  }
+  return out;
+}
+
 function viewHeute() {
   const day = state.date;
   const isToday = day === D.todayKey();
-  const events = eventsOn(day);
-  const tasks = tasksOn(day);
-  const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' });
+  const tasks = mergeMissed(tasksOn(day));
   const meal = state.data.meals.find((m) => m.date === day);
+  const r = mealRecipe(meal);
 
   const filters = [
     ['alle', 'Alle'],
@@ -768,51 +869,41 @@ function viewHeute() {
   const bdays = birthdaysOn(day);
   const holiday = holidayOn(day, state.land);
   const ferien = schoolHolidayOn(day, state.land);
+  const notes = [
+    holiday ? `<span class="day-chip hol">🎉 ${esc(holiday.name)}</span>` : '',
+    ferien ? `<span class="day-chip">🏖️ ${esc(ferien.name)} <span class="muted">bis ${esc(D.formatDayMonth(ferien.end))}</span></span>` : '',
+    ...bdays.map((b) => {
+      const age = ageOn(b, day);
+      return `<button class="day-chip" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(b.name)}${age ? ` <span class="muted">(${age})</span>` : ''}</button>`;
+    }),
+  ].filter(Boolean);
 
   return `
-    <div class="family-strip">
+    <div class="family-strip compact">
       ${[...members()]
         .sort((a, b) => (b.id === state.me) - (a.id === state.me)) // ich zuerst
         .map(
-          (m) => `<button class="${m.id === state.me ? 'me' : ''}" data-action="open-person" data-id="${m.id}">
-            <span class="av-wrap">${avatar(m)}${m.id === state.me ? '<span class="me-badge">Du</span>' : ''}</span>
-            <span class="fs-name">${esc(m.name)}</span></button>`
+          (m) => `<button class="${m.id === state.me ? 'me' : ''}" data-action="open-person" data-id="${m.id}" aria-label="${esc(m.name)}${m.id === state.me ? ' (du)' : ''}" title="${esc(m.name)}">${avatar(m)}</button>`
         )
         .join('')}
     </div>
-    ${
-      bdays.length || holiday || ferien
-        ? `<p class="bd-line">${[
-            holiday ? `<span class="day-note">🎉 ${esc(holiday.name)} <span class="muted">(Feiertag)</span></span>` : '',
-            ferien ? `<span class="day-note">🏖️ ${esc(ferien.name)} <span class="muted">bis ${D.formatShort(ferien.end)}</span></span>` : '',
-            ...bdays.map((b) => `<button class="day-note bd-note" data-action="edit-birthday" data-id="${b.id}">${birthdayHtml(b, day)}</button>`),
-          ]
-            .filter(Boolean)
-            .join('<br />')}</p>`
-        : ''
-    }
-    ${
-      reminders.length
-        ? `<section>
-            <h2>Erinnerungen</h2>
-            <ul class="tasks card">${reminders.map(taskRow).join('')}</ul>
-          </section>`
-        : ''
-    }
-    ${events.length ? `<section><h2>Termine</h2>${events.map(eventCard).join('')}</section>` : ''}
+    ${notes.length ? `<div class="day-chips">${notes.join('')}</div>` : ''}
+    ${flowList(day)}
 
     <section>
-      <h2>Essen</h2>
+      <div class="section-head">
+        <h2>Essen</h2>
+        ${
+          r
+            ? `<span class="head-links">
+                <button class="link" data-action="open-recipe" data-id="${meal.recipe_id}">Rezept</button>
+                <button class="link" data-action="ingredients" data-ids="${meal.recipe_id}">Zutaten</button>
+                <button class="link" data-action="pick-recipe" data-day="${day}">Ändern</button>
+              </span>`
+            : ''
+        }
+      </div>
       ${mealField(meal, day, `Was gibt es ${isToday ? 'heute' : 'an diesem Tag'}?`, 'done', 'card meal')}
-      ${
-        mealRecipe(meal)
-          ? `<div class="meal-actions">
-              <button class="link" data-action="open-recipe" data-id="${meal.recipe_id}">Rezept</button>
-              <button class="link" data-action="ingredients" data-ids="${meal.recipe_id}">Zutaten einkaufen</button>
-              <button class="link" data-action="pick-recipe" data-day="${day}">Ändern</button>
-            </div>`
-          : ''
-      }
     </section>
 
     ${allTasks.length ? `<section>
@@ -828,7 +919,7 @@ function viewHeute() {
         taskFilter() === 'meine' && !meMember()
           ? '<p class="empty">Unter „Einstellungen“ auswählen, wer du bist.</p>'
           : tasks.length
-            ? `<ul class="tasks card">${tasks.map(taskRow).join('')}</ul>`
+            ? `<ul class="tasks card compact">${tasks.map((x) => taskRow(x, { stack: true })).join('')}</ul>`
             : '<p class="empty">Keine eigenen Aufgaben.</p>'
       }
     </section>` : ''}`;
@@ -3841,6 +3932,12 @@ function debounce(fn, ms) {
     t = setTimeout(fn, ms);
   };
 }
+
+// Heute: Tagesablauf jede Minute auffrischen ("jetzt"-Linie, Vergangenes blass)
+setInterval(() => {
+  if (document.hidden || state.view !== 'heute' || state.date !== D.todayKey() || document.body.classList.contains('sheet-open')) return;
+  render();
+}, 60000);
 
 function openDayFromPush(day) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return;
