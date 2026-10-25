@@ -1338,11 +1338,9 @@ function viewMonat() {
     // Wiederkehrende Aufgaben/Erinnerungen bekommen keinen Punkt (sonst hätte jeder Tag einen)
     const rem = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && !x.undated && !x.recurring).length;
     const tsk = tasksOn(day, { filter: false }).filter((x) => !x.overdue && !x.undated && !x.recurring).length;
-    const bd = birthdaysOn(day).length;
     return [
       ...dots.slice(0, 3).map((c) => `<i style="background:${esc(c)}"></i>`),
       rem || tsk ? '<i class="dot-task"></i>' : '',
-      bd ? '<span class="dot-cake" aria-label="Geburtstag">🎂</span>' : '',
     ].join('');
   };
   const grid = `
@@ -1358,6 +1356,7 @@ function viewMonat() {
                 (day) => `<button class="m-day ${day.slice(5, 7) !== monthNo ? 'other' : ''} ${day === today ? 'today' : ''} ${day === sel ? 'sel' : ''}
                   ${holidayOn(day, state.land) ? 'hol' : ''} ${schoolHolidayOn(day, state.land) ? 'ferien' : ''}" data-action="month-day" data-day="${day}">
                   <span class="m-num">${D.fromKey(day).getDate()}</span>
+                  ${birthdaysOn(day).length ? '<span class="m-cake" aria-label="Geburtstag">🎂</span>' : ''}
                   ${barsFor(day, lanes)}
                   <span class="m-dots">${dotsFor(day, lanes)}</span>
                 </button>`
