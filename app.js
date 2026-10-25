@@ -918,7 +918,7 @@ function viewHeute() {
       </div>
       ${
         taskFilter() === 'meine' && !meMember()
-          ? '<p class="empty">Unter „Einstellungen“ auswählen, wer du bist.</p>'
+          ? '<p class="empty">Unter „Mehr“ auswählen, wer du bist.</p>'
           : tasks.length
             ? `<ul class="tasks card compact">${tasks.map((x) => taskRow(x, { stack: true })).join('')}</ul>`
             : '<p class="empty">Keine eigenen Aufgaben.</p>'
@@ -2061,7 +2061,7 @@ function pushSection() {
     return wrap(`
       <p class="small">Push-Nachrichten für Erinnerungen, Termine und Aufgaben – nur auf diesem Gerät${meMember() ? ` und für ${esc(meMember().name)}` : ''}.</p>
       <button class="btn primary wide" data-action="push-enable" ${state.me ? '' : 'disabled'}>${ic('bell')}Auf diesem Gerät aktivieren</button>
-      ${state.me ? '' : '<p class="muted small">Zuerst oben unter „Ich bin“ auswählen, wer du bist.</p>'}`);
+      ${state.me ? '' : '<p class="muted small">Zuerst unter „Dieses Handy → Ich bin“ auswählen, wer du bist.</p>'}`);
   const toggle = (k, label, hint) => `
     <label class="check-line push-toggle"><input type="checkbox" data-change="push" name="${k}" ${row[k] ? 'checked' : ''} />
       <span class="grow-col"><span>${label}</span><span class="muted small">${hint}</span></span></label>`;
@@ -2079,7 +2079,7 @@ function pushSection() {
     <button class="link danger-link" data-action="push-disable">Auf diesem Gerät ausschalten</button>`);
 }
 
-function viewMehr() {
+function viewEintraege() {
   const ms = members();
   const events = [...state.data.events]
     .filter((e) => e.weekdays?.length || (e.date && (e.end_date || e.date) >= D.todayKey()))
@@ -2106,68 +2106,6 @@ function viewMehr() {
         : 'ohne Datum';
 
   return `
-    <section>
-      <h2>Ich bin</h2>
-      <div class="card pad">
-        <select data-change="me">
-          <option value="">– bitte wählen –</option>
-          ${ms.map((m) => `<option value="${m.id}" ${m.id === state.me ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
-        </select>
-        <p class="muted small">Gilt nur für dieses Gerät. Wird für den Filter „Meine“ genutzt.</p>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Familie</h2><button class="link" data-action="new-member">${ic('plus')}Person</button></div>
-      <ul class="card list">
-        ${ms
-          .map(
-            (m) => `<li><button data-action="open-person" data-id="${m.id}">
-              ${avatar(m)}
-              <span class="grow">${esc(m.name)} <span class="muted small">${ROLES[m.role] || ''}</span></span>
-            </button></li>`
-          )
-          .join('')}
-      </ul>
-    </section>
-
-    <section>
-      ${birthdaysEntry()}
-    </section>
-
-    <section>
-      <h2>Ferien &amp; Feiertage</h2>
-      <div class="card pad">
-        <select data-change="land">
-          <option value="" ${state.land ? '' : 'selected'}>– nicht anzeigen –</option>
-          ${STATES.map(([k, n]) => `<option value="${k}" ${k === state.land ? 'selected' : ''}>${n}</option>`).join('')}
-        </select>
-        <p class="muted small">Schulferien und Feiertage dieses Bundeslands werden im Kalender angezeigt (gilt für dieses Gerät).</p>
-      </div>
-    </section>
-
-    ${pushSection()}
-
-    <section>
-      <h2>Darstellung</h2>
-      <div class="card pad">
-        <div class="seg wide theme-seg">
-          ${[
-            ['auto', 'Automatisch'],
-            ['light', `${ic('heute')}Hell`],
-            ['dark', `${ic('moon')}Dunkel`],
-          ]
-            .map(([k, l]) => `<button class="${(lsGet('fo-theme') || 'auto') === k ? 'on' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`)
-            .join('')}
-        </div>
-        <p class="muted small">„Automatisch“ folgt der Einstellung des Handys.</p>
-        <label class="check-line push-toggle pref-toggle"><input type="checkbox" data-change="nowline" ${lsGet('fo-nowline') === '1' ? 'checked' : ''} />
-          <span class="grow-col"><span>Linie mit aktueller Uhrzeit</span><span class="muted small">im Tagesablauf auf „Heute“ (gilt für dieses Gerät)</span></span></label>
-      </div>
-    </section>
-
-    <details class="all-entries">
-      <summary><span class="grow-col"><span class="title">Alle Einträge verwalten</span><span class="muted small">Erinnerungen, Termine, Aufgaben</span></span><span class="chev">${ic('down')}</span></summary>
     <section>
       <div class="section-head"><h2>Erinnerungen</h2><button class="link" data-action="new-reminder">${ic('plus')}Erinnerung</button></div>
       <ul class="card list">
@@ -2222,13 +2160,86 @@ function viewMehr() {
       </ul>
     </section>
 
-    </details>
+`;
+}
+
+// Mehr: Familie oben, dann Organisieren, dann was nur dieses Handy betrifft
+function viewMehr() {
+  const ms = members();
+  const entries = state.data.events.length + state.data.tasks.length;
+  const settingRow = (label, control, hint = '') => `
+    <div class="set-row"><span class="grow-col"><span>${label}</span>${hint ? `<span class="muted small">${hint}</span>` : ''}</span>${control}</div>`;
+  return `
+    <section>
+      <div class="section-head"><h2>Familie</h2><button class="link" data-action="new-member">${ic('plus')}Person</button></div>
+      <ul class="card list">
+        ${ms
+          .map(
+            (m) => `<li><button data-action="open-person" data-id="${m.id}">
+              ${avatar(m)}
+              <span class="grow">${esc(m.name)} ${m.id === state.me ? '<span class="tag soft">Du</span>' : ''} <span class="muted small">${ROLES[m.role] || ''}</span></span>
+              <span class="chev">${ic('right')}</span>
+            </button></li>`
+          )
+          .join('')}
+      </ul>
+    </section>
+
+    <section>
+      <h2>Organisieren</h2>
+      ${birthdaysEntry()}
+      <button class="card nav-row" data-action="tab" data-tab="eintraege">
+        <span class="nav-icon">🗂️</span>
+        <span class="grow-col"><span class="title">Alle Einträge</span><span class="muted small">${entries} Termine, Erinnerungen und Aufgaben verwalten</span></span>
+        <span class="chev">${ic('right')}</span>
+      </button>
+    </section>
+
+    <section>
+      <h2>Dieses Handy</h2>
+      <div class="card set-card">
+        ${settingRow(
+          'Ich bin',
+          `<select data-change="me" aria-label="Ich bin">
+            <option value="">– wählen –</option>
+            ${ms.map((m) => `<option value="${m.id}" ${m.id === state.me ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+          </select>`,
+          'für „Meine“ und Benachrichtigungen'
+        )}
+        ${settingRow(
+          'Bundesland',
+          `<select data-change="land" aria-label="Bundesland">
+            <option value="" ${state.land ? '' : 'selected'}>aus</option>
+            ${STATES.map(([k, n]) => `<option value="${k}" ${k === state.land ? 'selected' : ''}>${n}</option>`).join('')}
+          </select>`,
+          'für Ferien und Feiertage'
+        )}
+        <div class="set-row col">
+          <span>Darstellung</span>
+          <div class="seg wide theme-seg">
+            ${[
+              ['auto', 'Automatisch'],
+              ['light', `${ic('heute')}Hell`],
+              ['dark', `${ic('moon')}Dunkel`],
+            ]
+              .map(([k, l]) => `<button class="${(lsGet('fo-theme') || 'auto') === k ? 'on' : ''}" data-action="set-theme" data-theme="${k}">${l}</button>`)
+              .join('')}
+          </div>
+        </div>
+        <label class="set-row">
+          <span class="grow-col"><span>Linie mit aktueller Uhrzeit</span><span class="muted small">im Tagesablauf auf „Heute“</span></span>
+          <input type="checkbox" class="switch" data-change="nowline" ${lsGet('fo-nowline') === '1' ? 'checked' : ''} />
+        </label>
+      </div>
+    </section>
+
+    ${pushSection()}
 
     <section>
       <h2>App</h2>
       <div class="card pad">
-        <p class="with-ic">${store.isCloud ? `${ic('cloud')}Gemeinsamer Speicher (Supabase) aktiv.` : `${ic('phone')}Lokaler Modus: Daten liegen nur auf diesem Gerät.`}</p>
-        <p class="muted small">Auf dem iPhone: in Safari „Teilen“ → „Zum Home-Bildschirm“. Auf Android: Menü → „App installieren“.</p>
+        <p class="with-ic">${store.isCloud ? `${ic('cloud')}Gemeinsamer Speicher aktiv.` : `${ic('phone')}Lokaler Modus: Daten liegen nur auf diesem Gerät.`}</p>
+        <p class="muted small">Installieren – iPhone: in Safari „Teilen“ → „Zum Home-Bildschirm“. Android: Menü → „App installieren“.</p>
         ${store.isCloud && state.session ? `<p class="muted small">Angemeldet als ${esc(state.session.user.email)}</p><button class="btn ghost" data-action="logout">Abmelden</button>` : ''}
       </div>
     </section>`;
@@ -2485,10 +2496,17 @@ function header() {
         </div>`
     );
   }
+  if (state.view === 'eintraege') {
+    return `
+      <header class="top sub">
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Mehr</span></button>
+      </header>
+      <div class="sub-title"><h1>Alle Einträge</h1></div>`;
+  }
   if (state.view === 'geburtstage') {
     return `
       <header class="top sub">
-        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Einstellungen</span></button>
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Mehr</span></button>
         <span class="head-actions"><button class="icon-btn" data-action="new-birthday" aria-label="Geburtstag eintragen">${ic('plus')}</button></span>
       </header>
       <div class="sub-title"><h1>Geburtstage</h1></div>`;
@@ -2503,7 +2521,7 @@ function header() {
       <div class="sub-title person-title">${avatar(m)}<h1>${esc(m?.name || '')}</h1></div>`;
   }
   // Suche gibt es dort, wo Termine stehen; Kochbuch hat sein eigenes Suchfeld
-  const titles = { einkauf: 'Einkauf', mehr: 'Einstellungen', kochbuch: 'Kochbuch' };
+  const titles = { einkauf: 'Einkauf', mehr: 'Mehr', kochbuch: 'Kochbuch' };
   return bigHeader(`<h1>${titles[state.view]}</h1>`, '');
 }
 
@@ -2541,11 +2559,11 @@ function tabbar() {
     ['woche', 'woche', 'Kalender'],
     ['kochbuch', 'kochbuch', 'Kochbuch'],
     ['einkauf', 'einkauf', 'Einkauf'],
-    ['mehr', 'mehr', 'Einstellungen'],
+    ['mehr', 'mehr', 'Mehr'],
   ];
   return `<nav class="tabbar">${tabs
     .map(
-      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && state.view === 'geburtstage') ? 'on' : ''}" data-action="tab" data-tab="${k}">
+      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
         <span class="ti">${icon(i)}</span><span>${l}</span></button>`
     )
     .join('')}</nav>`;
@@ -2576,7 +2594,7 @@ function render() {
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage };
+  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
@@ -2620,7 +2638,7 @@ function whoScreen() {
     <div class="center-screen">
       <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
       <h1>Wer bist du?</h1>
-      <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Einstellungen“ geändert werden.</p>
+      <p class="muted">Damit „Meine Aufgaben“ funktioniert. Kann später unter „Mehr“ geändert werden.</p>
       <div class="who">
         ${ms
           .map((m) => `<button class="btn big" style="--c:${esc(m.color)}" data-action="set-me" data-id="${m.id}">${avatar(m)}${esc(m.name)}</button>`)
@@ -3565,7 +3583,7 @@ const actions = {
   },
   back: () => {
     if (navBack()) return;
-    state.view = state.view === 'geburtstage' ? 'mehr' : state.prevView || 'heute';
+    state.view = ['geburtstage', 'eintraege'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
     window.scrollTo(0, 0);
     render();
   },
