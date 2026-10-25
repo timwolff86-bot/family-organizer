@@ -830,7 +830,7 @@ function flowList(day) {
   if (!items.length) return '';
   const rows = items.map(flowRow);
   // Rote Linie "jetzt" vor dem ersten Eintrag, der noch kommt
-  if (day === D.todayKey() && items.some((it) => it.sort)) {
+  if (lsGet('fo-nowline') === '1' && day === D.todayKey() && items.some((it) => it.sort)) {
     const now = nowHM();
     let i = items.findIndex((it) => !it.off && it.sort && it.sort > now);
     if (i < 0) i = items.length - items.filter((it) => it.off).length;
@@ -1996,6 +1996,8 @@ function viewMehr() {
             .join('')}
         </div>
         <p class="muted small">„Automatisch“ folgt der Einstellung des Handys.</p>
+        <label class="check-line push-toggle pref-toggle"><input type="checkbox" data-change="nowline" ${lsGet('fo-nowline') === '1' ? 'checked' : ''} />
+          <span class="grow-col"><span>Linie mit aktueller Uhrzeit</span><span class="muted small">im Tagesablauf auf „Heute“ (gilt für dieses Gerät)</span></span></label>
       </div>
     </section>
 
@@ -3609,6 +3611,10 @@ document.addEventListener('change', async (e) => {
     if (!row) return;
     const v = el.type === 'checkbox' ? el.checked : el.name === 'lead' ? Number(el.value) : el.value || '07:00';
     save('push_subscriptions', { id: row.id, [el.name]: v });
+    return;
+  }
+  if (el.dataset.change === 'nowline') {
+    lsSet('fo-nowline', el.checked ? '1' : null);
     return;
   }
   if (el.dataset.change === 'land') {

@@ -3934,3 +3934,17 @@ details[open] > summary .sum-ic {
 .tasks.compact .task .av-stack {
   flex: none;
 }
+.pref-toggle {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  font-size: 16px;
+}
+.pref-toggle input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  accent-color: var(--accent);
+}
