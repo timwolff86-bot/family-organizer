@@ -41,6 +41,9 @@ const state = {
   land: lsGet('fo-land') ?? 'NW', // Bundesland für Ferien/Feiertage, '' = aus
   pendingRender: false,
   shopFilter: null, // Einkauf: nur ein Laden
+  noteId: null, // geöffnete Notiz
+  noteFilter: null, // Notizen: 'liste' | 'text'
+  noteEditing: null, // Text-Notiz gerade im Bearbeiten
   personFilter: null, // Personenansicht: nur Termine/Erinnerungen/Aufgaben
   personRange: 14, // Personenansicht: Tage ab heute (14 → 31 → 92 über "mehr zeigen")
 };
@@ -1960,7 +1963,7 @@ function itemForm(item) {
 const nav = { stack: [], guarded: false, ignore: 0 };
 // Scroll-Position stellt die App selbst wieder her (der Browser würde sie überschreiben)
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-const navSnap = () => ({ type: 'view', view: state.view, date: state.date, personId: state.personId, cal: state.cal, scroll: window.scrollY });
+const navSnap = () => ({ type: 'view', view: state.view, date: state.date, personId: state.personId, noteId: state.noteId, cal: state.cal, scroll: window.scrollY });
 const MAIN_TABS = ['heute', 'woche', 'kochbuch', 'einkauf', 'mehr'];
 
 function navSync() {
@@ -2030,6 +2033,8 @@ function restoreView(snap) {
   state.view = snap.view;
   state.date = snap.date;
   state.personId = snap.personId;
+  state.noteId = snap.noteId;
+  state.noteEditing = null;
   state.cal = snap.cal;
   render();
   window.scrollTo(0, snap.scroll || 0);
@@ -2214,6 +2219,7 @@ function viewMehr() {
 
     <section>
       <h2>Organisieren</h2>
+      ${notesEntry()}
       ${birthdaysEntry()}
       <button class="card nav-row" data-action="tab" data-tab="eintraege">
         <span class="nav-icon">🗂️</span>
@@ -2272,6 +2278,231 @@ function viewMehr() {
     </section>`;
 }
 
+/* ================= Notizen ================= */
+
+const NOTE_EMOJIS = ['📝', '🧳', '🏠', '🎁', '🛠️', '👕', '🏊', '🎉', '🍳', '💊', '📚', '🚗', '🎄', '⭐', '📞', '🐾'];
+const notesReady = () => !state.data.missing?.includes('notes');
+const noteItems = (n) => (Array.isArray(n.items) ? n.items : []);
+const noteProgress = (n) => {
+  const items = noteItems(n).filter((x) => !x.head);
+  return { done: items.filter((x) => x.done).length, total: items.length };
+};
+const sortedNotes = () =>
+  [...(state.data.notes || [])].sort((a, b) => b.pinned - a.pinned || (b.updated_at || '').localeCompare(a.updated_at || ''));
+const noteId = () => Math.random().toString(36).slice(2, 10);
+
+// "heute 16:20", "gestern", "12.10." (bzw. mit Jahr)
+function whenShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const key = D.toKey(d);
+  const rel = D.relativeLabel(key);
+  if (rel === 'Heute') return `heute ${D.pad(d.getHours())}:${D.pad(d.getMinutes())}`;
+  if (rel === 'Gestern') return 'gestern';
+  return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', ...(key.slice(0, 4) !== D.todayKey().slice(0, 4) ? { year: 'numeric' } : {}) });
+}
+const byName = (id) => member(id)?.name || '';
+
+// Vorschauzeile in der Übersicht
+function notePreview(n) {
+  if (n.kind === 'liste') {
+    const open = noteItems(n).filter((x) => !x.head && !x.done).map((x) => x.text);
+    return open.length ? open.slice(0, 4).join(' · ') : noteItems(n).length ? 'Alles abgehakt' : 'Noch leer';
+  }
+  return (n.body || '').replace(/\s+/g, ' ').trim() || 'Noch leer';
+}
+
+function saveNote(n, patch) {
+  return save('notes', { id: n.id, ...patch, updated_at: new Date().toISOString(), updated_by: state.me || null });
+}
+
+// Text-Notiz: beim Tippen kurz warten, dann speichern (und beim Verlassen sofort)
+let noteTimer;
+function saveNoteBody(t) {
+  clearTimeout(noteTimer);
+  const n = (state.data.notes || []).find((x) => x.id === t.dataset.id);
+  if (n && (n.body || '') !== t.value) saveNote(n, { body: t.value });
+}
+const autoGrow = (t) => {
+  t.style.height = 'auto';
+  t.style.height = `${Math.max(t.scrollHeight, 160)}px`;
+};
+
+function notesEntry() {
+  const list = sortedNotes();
+  const preview = !notesReady()
+    ? 'Datenbank-Update nötig (update-15.sql)'
+    : list.length
+      ? `${list.length} ${list.length === 1 ? 'Notiz' : 'Notizen'} · zuletzt: ${list[0].title}`
+      : 'Listen und Infos für die ganze Familie';
+  return `<button class="card nav-row" data-action="tab" data-tab="notizen">
+    <span class="nav-icon">📝</span>
+    <span class="grow-col"><span class="title">Notizen</span><span class="muted small">${esc(preview)}</span></span>
+    <span class="chev">${ic('right')}</span>
+  </button>`;
+}
+
+function noteRow(n) {
+  const p = noteProgress(n);
+  const search = [n.title, n.body || '', ...noteItems(n).map((x) => x.text)].join(' ').toLowerCase();
+  return `<li data-search="${esc(search)}"><button class="note-row" data-action="open-note" data-id="${n.id}">
+    <span class="note-emoji">${esc(n.emoji || '📝')}</span>
+    <span class="grow-col"><span class="title">${esc(n.title)}</span><span class="muted small note-prev">${esc(notePreview(n))}</span></span>
+    ${n.kind === 'liste' && p.total ? `<span class="note-prog ${p.done === p.total ? 'full' : ''}">${p.done}/${p.total}</span>` : ''}
+  </button></li>`;
+}
+
+function viewNotizen() {
+  if (!notesReady()) return '<div class="banner">Datenbank-Update nötig: bitte supabase/update-15.sql in Supabase ausführen.</div>';
+  const f = state.noteFilter || 'alle';
+  const all = sortedNotes();
+  const list = all.filter((n) => f === 'alle' || (f === 'liste' ? n.kind === 'liste' : n.kind !== 'liste'));
+  const pinned = list.filter((n) => n.pinned);
+  const rest = list.filter((n) => !n.pinned);
+  const count = (k) => all.filter((n) => (k === 'liste' ? n.kind === 'liste' : n.kind !== 'liste')).length;
+  if (!all.length)
+    return `<div class="card pad note-empty">
+      <p><b>Noch keine Notizen.</b></p>
+      <p class="muted small">Für alles ohne Datum: Packlisten, wichtige Nummern, Geschenkideen, Kleidergrößen …</p>
+      <button class="btn primary wide" data-action="new-note">${ic('plus')}Erste Notiz anlegen</button>
+    </div>`;
+  return `
+    <input type="search" id="note-search" placeholder="Notizen durchsuchen …" autocomplete="off" />
+    <div class="chip-row">
+      ${[
+        ['alle', `Alle ${all.length}`],
+        ['liste', `Listen ${count('liste')}`],
+        ['text', `Infos ${count('text')}`],
+      ]
+        .map(([k, l]) => `<button class="filter-chip ${f === k ? 'on' : ''}" data-action="note-filter" data-f="${k}">${l}</button>`)
+        .join('')}
+    </div>
+    ${pinned.length ? `<section><h2>📌 Angeheftet</h2><ul class="card list notes-list">${pinned.map(noteRow).join('')}</ul></section>` : ''}
+    ${rest.length ? `<section>${pinned.length ? '<h2>Alle Notizen</h2>' : ''}<ul class="card list notes-list">${rest.map(noteRow).join('')}</ul></section>` : ''}
+    ${!list.length ? '<p class="empty">Keine Notizen in dieser Auswahl.</p>' : ''}
+    <p class="empty note-none" hidden>Nichts gefunden.</p>`;
+}
+
+// Telefonnummern, E-Mails und Links antippbar machen
+function linkify(text) {
+  return esc(text)
+    .replace(/\b(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
+    .replace(/\b([\w.+-]+@[\w-]+\.[\w.-]+)\b/g, '<a href="mailto:$1">$1</a>')
+    .replace(/(^|[\s(:])((?:\+|0)[\d][\d /-]{5,}\d)/g, (m, pre, num) => `${pre}<a href="tel:${num.replace(/[^\d+]/g, '')}">${num}</a>`);
+}
+
+function viewNotiz() {
+  const n = (state.data.notes || []).find((x) => x.id === state.noteId);
+  if (!n) return '<p class="empty">Diese Notiz gibt es nicht mehr.</p>';
+  const meta = [
+    `angelegt ${whenShort(n.created_at)}${byName(n.created_by) ? ` von ${esc(byName(n.created_by))}` : ''}`,
+    n.updated_at && n.updated_at !== n.created_at ? `geändert ${whenShort(n.updated_at)}${byName(n.updated_by) ? ` von ${esc(byName(n.updated_by))}` : ''}` : '',
+  ].filter(Boolean);
+  const head = `<p class="note-meta muted small">${meta.join(' · ')}
+    <button class="link note-pin" data-action="note-pin" data-id="${n.id}">${n.pinned ? '📌 angeheftet' : 'anheften'}</button></p>`;
+  if (n.kind !== 'liste') {
+    return `${head}
+      ${
+        state.noteEditing === n.id
+          ? `<textarea id="note-body" class="note-body-edit" data-id="${n.id}" placeholder="Hier schreiben …">${esc(n.body || '')}</textarea>
+             <button class="btn primary wide" data-action="note-done">Fertig</button>`
+          : `<div class="card pad note-text" data-action="note-edit-body" data-id="${n.id}">${
+              n.body?.trim() ? linkify(n.body).replace(/\n/g, '<br />') : '<span class="muted">Antippen zum Schreiben …</span>'
+            }</div>
+             <p class="muted small center">Zum Ändern auf den Text tippen. Nummern und Adressen sind antippbar.</p>`
+      }`;
+  }
+  const items = noteItems(n);
+  const p = noteProgress(n);
+  return `${head}
+    <div class="card note-list">
+      ${items
+        .map((x) =>
+          x.head
+            ? `<div class="nl-head">${esc(x.text)}</div>`
+            : `<button class="nl-item ${x.done ? 'done' : ''}" data-action="note-toggle" data-id="${n.id}" data-item="${x.id}">
+                <span class="nl-box">${x.done ? ic('check') : ''}</span><span class="nl-text">${esc(x.text)}</span></button>`
+        )
+        .join('')}
+      <form class="nl-add" data-form="note-add" data-id="${n.id}">
+        <span class="nl-plus">${ic('plus')}</span>
+        <input name="text" placeholder="Punkt hinzufügen" autocomplete="off" enterkeyhint="done" />
+      </form>
+    </div>
+    ${items.some((x) => x.head) || items.length > 8 ? '' : '<p class="muted small nl-tip">Tipp: Mit Doppelpunkt am Ende wird es eine Überschrift, z. B. „Bad:“.</p>'}
+    ${
+      p.total
+        ? `<div class="note-actions">
+            ${p.done ? `<button class="btn ghost" data-action="note-reset" data-id="${n.id}">${ic('repeat')}Haken zurücksetzen</button>` : ''}
+            ${p.done < p.total ? `<button class="btn ghost" data-action="note-to-shop" data-id="${n.id}">${ic('einkauf')}Offenes → Einkauf</button>` : ''}
+          </div>`
+        : ''
+    }`;
+}
+
+// Neu anlegen / Name, Symbol, Art ändern; bei Listen: alle Punkte als Text bearbeiten
+function noteForm(n) {
+  if (!notesReady()) return toast('Bitte zuerst supabase/update-15.sql in Supabase ausführen.');
+  const isNew = !n;
+  n ||= { kind: 'liste', emoji: '📝', items: [] };
+  const lines = noteItems(n).map((x) => (x.head ? `${x.text}:` : x.text)).join('\n');
+  const inner = `
+    <label>Name<input name="title" value="${esc(n.title || '')}" required placeholder="z. B. Packliste Urlaub" /></label>
+    <div class="field-label">Symbol</div>
+    <div class="emoji-pick">${NOTE_EMOJIS.map((e) => `<label><input type="radio" name="emoji" value="${e}" ${e === (n.emoji || '📝') ? 'checked' : ''}/><span>${e}</span></label>`).join('')}</div>
+    ${
+      isNew
+        ? `<div class="field-label">Art</div>${repeatSwitch('kind', n.kind, [
+            ['liste', 'Liste zum Abhaken'],
+            ['text', 'Freier Text'],
+          ])}`
+        : n.kind === 'liste'
+          ? `<label>Punkte <span class="muted small">– einer pro Zeile, mit „:“ am Ende = Überschrift</span>
+              <textarea name="lines" rows="8">${esc(lines)}</textarea></label>`
+          : ''
+    }
+    <label class="check-line"><input type="checkbox" name="pinned" ${n.pinned ? 'checked' : ''}/> Oben anheften</label>`;
+  openSheet(
+    isNew ? 'Neue Notiz' : 'Notiz bearbeiten',
+    inner,
+    (f) => {
+      const title = f.get('title').trim();
+      if (!title) return;
+      const row = { title, emoji: f.get('emoji') || '📝', pinned: f.get('pinned') === 'on' };
+      if (isNew) {
+        const now = new Date().toISOString();
+        const id = store.uuid();
+        save('notes', { id, ...row, kind: f.get('kind') || 'liste', body: null, items: [], created_by: state.me || null, updated_by: state.me || null, created_at: now, updated_at: now });
+        closeSheet();
+        state.noteId = id;
+        navPush();
+        state.view = 'notiz';
+        window.scrollTo(0, 0);
+        render();
+        setTimeout(() => $('.nl-add input')?.focus(), 50);
+        return;
+      }
+      if (n.kind === 'liste') {
+        // Häkchen bleiben erhalten, wenn der Text gleich bleibt
+        const old = noteItems(n);
+        row.items = (f.get('lines') || '')
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .map((l) => {
+            const head = /:$/.test(l);
+            const text = head ? l.replace(/:+$/, '').trim() : l;
+            const prev = old.find((x) => x.text === text && !!x.head === head);
+            return { id: prev?.id || noteId(), text, done: head ? false : !!prev?.done, head };
+          });
+      }
+      saveNote(n, row);
+      closeSheet();
+    },
+    isNew ? '' : `<button type="button" class="btn danger wide" data-action="note-delete" data-id="${n.id}">Notiz löschen</button>`
+  );
+}
+
 /* ================= Suche ================= */
 
 const SEARCH_KINDS = [
@@ -2281,6 +2512,7 @@ const SEARCH_KINDS = [
   ['aufgabe', 'Aufgaben'],
   ['rezept', 'Rezepte'],
   ['geburtstag', 'Geburtstage'],
+  ['notiz', 'Notizen'],
 ];
 
 function openSearch({ focus = true } = {}) {
@@ -2418,7 +2650,15 @@ function searchItems() {
     }
     recipes.sort((a, b) => b.score - a.score || a.r.title.localeCompare(b.r.title));
   }
-  return { items: out, recipes, labels: [...people.map((id) => member(id)?.name), ...(range?.labels || [])].filter(Boolean), empty: !terms.length && !people.length && !range };
+  const notes = [];
+  if (want('notiz') && !range && !people.length && (terms.length || kind === 'notiz')) {
+    for (const n of state.data.notes || []) {
+      const score = scoreFields(terms, [{ text: n.title, weight: 1 }, { text: n.body, weight: 0.7 }, { text: noteItems(n).map((x) => x.text).join(' '), weight: 0.7 }]);
+      if (score) notes.push({ n, score });
+    }
+    notes.sort((a, b) => b.score - a.score || (b.n.updated_at || '').localeCompare(a.n.updated_at || ''));
+  }
+  return { items: out, recipes, notes, labels: [...people.map((id) => member(id)?.name), ...(range?.labels || [])].filter(Boolean), empty: !terms.length && !people.length && !range };
 }
 
 const SEARCH_ICON = { termin: ic('calendar'), erinnerung: ic('bell'), aufgabe: ic('task'), geburtstag: '<span class="emo">🎂</span>' };
@@ -2472,8 +2712,8 @@ function upcomingPreview(kind = 'alle') {
 function renderSearchResults() {
   const box = $('#search-results');
   if (!box || !state.data) return;
-  const { items, recipes, labels, empty } = searchItems();
-  if (empty && state.search.kind !== 'geburtstag' && state.search.kind !== 'rezept') {
+  const { items, recipes, notes, labels, empty } = searchItems();
+  if (empty && !['geburtstag', 'rezept', 'notiz'].includes(state.search.kind)) {
     const ex = JSON.parse(box.dataset.examples || '[]');
     box.innerHTML = `
       ${upcomingPreview(state.search.kind)}
@@ -2495,7 +2735,11 @@ function renderSearchResults() {
     ? `<h3 class="sr-head">Rezepte <span class="muted small">${recipes.length}</span></h3>
        <ul class="card list recipes">${recipes.slice(0, state.search.kind === 'rezept' ? 60 : 5).map(({ r }) => recipeRow(r, 'search-recipe')).join('')}</ul>`
     : '';
-  const html = filterLine + section('Demnächst', up) + section('Vergangen', past) + recipeBlock;
+  const noteBlock = notes.length
+    ? `<h3 class="sr-head">Notizen <span class="muted small">${notes.length}</span></h3>
+       <ul class="card list notes-list">${notes.slice(0, state.search.kind === 'notiz' ? 60 : 5).map(({ n }) => noteRow(n).replace('data-action="open-note"', 'data-action="search-note"')).join('')}</ul>`
+    : '';
+  const html = filterLine + section('Demnächst', up) + section('Vergangen', past) + noteBlock + recipeBlock;
   box.innerHTML = html.replace(filterLine, '') ? html : `${filterLine}<p class="empty">Nichts gefunden.</p>`;
 }
 
@@ -2554,6 +2798,23 @@ function header() {
           <button class="${month ? 'on' : ''}" data-action="cal-mode" data-mode="monat">Monat</button>
         </div>`
     );
+  }
+  if (state.view === 'notizen') {
+    return `
+      <header class="top sub">
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Mehr</span></button>
+        <span class="head-actions">${notesReady() ? `<button class="icon-btn" data-action="new-note" aria-label="Neue Notiz">${ic('plus')}</button>` : ''}</span>
+      </header>
+      <div class="sub-title"><h1>Notizen</h1></div>`;
+  }
+  if (state.view === 'notiz') {
+    const n = (state.data.notes || []).find((x) => x.id === state.noteId);
+    return `
+      <header class="top sub">
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Notizen</span></button>
+        <span class="head-actions">${n ? `<button class="link" data-action="note-form" data-id="${n.id}">Bearbeiten</button>` : ''}</span>
+      </header>
+      <div class="sub-title note-title"><h1>${n ? `<span>${esc(n.emoji || '📝')}</span> ${esc(n.title)}` : 'Notiz'}</h1></div>`;
   }
   if (state.view === 'eintraege') {
     return `
@@ -2622,7 +2883,7 @@ function tabbar() {
   ];
   return `<nav class="tabbar">${tabs
     .map(
-      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
+      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege', 'notizen', 'notiz'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
         <span class="ti">${icon(i)}</span><span>${l}</span></button>`
     )
     .join('')}</nav>`;
@@ -2653,7 +2914,7 @@ function render() {
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege };
+  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege, notizen: viewNotizen, notiz: viewNotiz };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
@@ -2745,6 +3006,10 @@ function fitToKeyboard() {
 }
 window.visualViewport?.addEventListener('resize', fitToKeyboard);
 window.visualViewport?.addEventListener('scroll', fitToKeyboard);
+// Text-Notiz: beim Verlassen des Felds sofort speichern
+document.addEventListener('focusout', (e) => {
+  if (e.target.id === 'note-body') saveNoteBody(e.target);
+});
 // Feld mit Fokus nicht hinter dem Sichern-Knopf verstecken
 document.addEventListener('focusin', (e) => {
   if (!e.target.closest?.('.sheet') || !e.target.matches('input, textarea, select')) return;
@@ -3400,6 +3665,7 @@ function addChooser() {
       <button class="btn big" data-action="new-reminder">${ic('bell')}Erinnerung</button>
       <button class="btn big" data-action="new-event">${ic('calendar')}Termin</button>
       <button class="btn big" data-action="new-task">${ic('task')}Aufgabe</button>
+      <button class="btn big" data-action="new-note">${ic('note')}Notiz</button>
       <button class="btn ghost wide" data-action="close-sheet">Abbrechen</button>
     </div>`;
   sheetOpened();
@@ -3653,7 +3919,8 @@ const actions = {
   },
   back: () => {
     if (navBack()) return;
-    state.view = ['geburtstage', 'eintraege'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
+    state.view = state.view === 'notiz' ? 'notizen' : ['geburtstage', 'eintraege', 'notizen'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
+    state.noteEditing = null;
     window.scrollTo(0, 0);
     render();
   },
@@ -3691,6 +3958,67 @@ const actions = {
   'search-recipe': (d) => {
     state.searchBack = true;
     actions['open-recipe'](d);
+  },
+  'new-note': () => noteForm(null),
+  'note-form': (d) => noteForm((state.data.notes || []).find((x) => x.id === d.id)),
+  'open-note': (d) => {
+    state.noteId = d.id;
+    state.noteEditing = null;
+    navPush();
+    state.view = 'notiz';
+    window.scrollTo(0, 0);
+    render();
+  },
+  'search-note': (d) => {
+    state.searchBack = false;
+    closeSheet();
+    actions['open-note'](d);
+  },
+  'note-filter': (d) => {
+    state.noteFilter = d.f === 'alle' ? null : d.f;
+    render();
+  },
+  'note-pin': (d) => {
+    const n = state.data.notes.find((x) => x.id === d.id);
+    if (n) saveNote(n, { pinned: !n.pinned });
+  },
+  'note-toggle': (d) => {
+    const n = state.data.notes.find((x) => x.id === d.id);
+    if (!n) return;
+    saveNote(n, { items: noteItems(n).map((x) => (x.id === d.item ? { ...x, done: !x.done } : x)) });
+  },
+  'note-reset': (d) => {
+    const n = state.data.notes.find((x) => x.id === d.id);
+    if (n) saveNote(n, { items: noteItems(n).map((x) => ({ ...x, done: false })) });
+    toast('Alle Haken zurückgesetzt');
+  },
+  'note-to-shop': (d) => {
+    const n = state.data.notes.find((x) => x.id === d.id);
+    const open = n ? noteItems(n).filter((x) => !x.head && !x.done) : [];
+    open.forEach((x) => addItem(x.text, { countUse: false }));
+    toast(`${open.length} ${open.length === 1 ? 'Punkt' : 'Punkte'} auf die Einkaufsliste gesetzt`);
+  },
+  'note-edit-body': (d) => {
+    state.noteEditing = d.id;
+    render();
+    const t = $('#note-body');
+    if (t) {
+      t.focus();
+      t.setSelectionRange(t.value.length, t.value.length);
+      autoGrow(t);
+    }
+  },
+  'note-done': () => {
+    const t = $('#note-body');
+    if (t) saveNoteBody(t);
+    state.noteEditing = null;
+    t?.blur();
+    render();
+  },
+  'note-delete': (d) => {
+    closeSheet();
+    removeWithUndo('notes', d.id, 'Notiz gelöscht');
+    if (state.view === 'notiz') actions.back();
   },
   'search-goto': (d) => {
     state.searchBack = false;
@@ -3900,6 +4228,7 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     return;
   }
+  if (e.target.closest('a[href]')) return; // Telefon/Mail/Link in Notizen
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const fn = actions[el.dataset.action];
@@ -3992,6 +4321,24 @@ document.addEventListener('input', (e) => {
     renderSearchResults();
     return;
   }
+  if (el.id === 'note-search') {
+    const q = el.value.trim().toLowerCase();
+    let shown = 0;
+    $('#main').querySelectorAll('.notes-list li').forEach((li) => {
+      li.hidden = q && !li.dataset.search.includes(q);
+      if (!li.hidden) shown++;
+    });
+    $('#main').querySelectorAll('.notes-list').forEach((ul) => (ul.closest('section').hidden = ![...ul.children].some((li) => !li.hidden)));
+    const none = $('#main .note-none');
+    if (none) none.hidden = shown > 0;
+    return;
+  }
+  if (el.id === 'note-body') {
+    autoGrow(el);
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => saveNoteBody(el), 800);
+    return;
+  }
   if (el.id === 'recipe-search') {
     const q = el.value.trim().toLowerCase();
     const root = el.closest('.sheet') || $('#main');
@@ -4057,6 +4404,18 @@ document.addEventListener('submit', async (e) => {
     input.blur(); // sonst wird die Liste nicht neu gezeichnet
     addItem(name); // zeichnet sofort neu
     $('#main form.add-item input[name="name"]')?.focus();
+  }
+
+  if (kind === 'note-add') {
+    const raw = (f.get('text') || '').trim();
+    const n = (state.data.notes || []).find((x) => x.id === form.dataset.id);
+    if (!raw || !n) return;
+    const head = /:$/.test(raw) && raw.length > 1;
+    const input = form.querySelector('input');
+    input.value = '';
+    input.blur(); // sonst wird nicht neu gezeichnet
+    saveNote(n, { items: [...noteItems(n), { id: noteId(), text: head ? raw.replace(/:+$/, '').trim() : raw, done: false, head }] });
+    $('.nl-add input')?.focus(); // gleich den nächsten Punkt eintippen
   }
 
   if (kind === 'add-shop') {

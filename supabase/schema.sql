@@ -193,12 +193,27 @@ create table if not exists public.shops (
 insert into public.shops (name, is_default) values ('Lidl', true) on conflict (name) do nothing;
 alter table public.shopping_items alter column shop set default 'Lidl';
 
+-- Notizen (Update 15)
+create table if not exists public.notes (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  emoji text,
+  kind text not null default 'text',
+  body text,
+  items jsonb not null default '[]',
+  pinned boolean not null default false,
+  created_by uuid references public.members (id) on delete set null,
+  updated_by uuid references public.members (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
 declare t text;
 begin
-  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays','push_subscriptions','shops'] loop
+  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays','push_subscriptions','shops','notes'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "familie" on public.%I', t);
     execute format('create policy "familie" on public.%I for all to authenticated using (true) with check (true)', t);
