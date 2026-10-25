@@ -2175,7 +2175,7 @@ function viewMehr() {
       <ul class="card list">
         ${ms
           .map(
-            (m) => `<li><button data-action="open-person" data-id="${m.id}">
+            (m) => `<li><button data-action="edit-member" data-id="${m.id}">
               ${avatar(m)}
               <span class="grow">${esc(m.name)} ${m.id === state.me ? '<span class="tag soft">Du</span>' : ''} <span class="muted small">${ROLES[m.role] || ''}</span></span>
               <span class="chev">${ic('right')}</span>
