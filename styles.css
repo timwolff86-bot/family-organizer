@@ -3977,3 +3977,27 @@ details[open] > summary .sum-ic {
 .person-more {
   margin: 12px 0 0;
 }
+.plist .fr-sub .rep .ic {
+  width: 12px;
+  height: 12px;
+  margin: 0 0 0 4px;
+  vertical-align: -1px;
+}
+.today-ok {
+  color: var(--accent);
+  font-weight: 600;
+}
+.today-ok .ic {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+  stroke-width: 3;
+}
+.today-open {
+  color: var(--warn);
+  font-weight: 600;
+}
+.plist .prow.off .fr-time {
+  text-decoration: none;
+  color: var(--text);
+}

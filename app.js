@@ -986,7 +986,7 @@ const PERSON_STEPS = [14, 31, 92];
 // Eine Zeile der Personenliste: Tag links (nur bei der ersten Zeile des Tages), Titel, Details
 function personRow(day, first, it, id) {
   const d = D.fromKey(day);
-  const dayLabel = first ? `${D.WD_SHORT[D.isoWeekday(day) - 1]} ${d.getDate()}.` : '';
+  const dayLabel = !first ? '' : day === D.todayKey() ? 'Heute' : `${D.WD_SHORT[D.isoWeekday(day) - 1]} ${d.getDate()}.`;
   const others = (ids) => {
     const rest = ids.filter((x) => x !== id).map((x) => member(x)?.name).filter(Boolean);
     if (members().length > 2 && members().every((m) => ids.includes(m.id))) return 'ganze Familie';
@@ -1014,9 +1014,15 @@ function personRow(day, first, it, id) {
   const { t } = x;
   const rem = isReminder(t);
   const sub = [
-    rem ? 'Erinnerung' : 'Aufgabe',
+    `${rem ? 'Erinnerung' : 'Aufgabe'}${x.recurring ? `<span class="rep">${ic('repeat')}</span>` : ''}`,
     t.due_time ? D.hm(t.due_time) : '',
-    x.overdue ? `<span class="red">seit ${esc(D.formatDayMonth(t.due_date))}</span>` : '',
+    x.missed
+      ? `<span class="red">${esc(missedLabel(x.day))} nicht erledigt</span>`
+      : x.overdue
+        ? `<span class="red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
+        : x.missedDay && !x.done
+          ? `<span class="red">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
+          : '',
     esc(others(peopleOf(t))),
   ].filter(Boolean);
   return `<div class="frow prow ${first ? 'first' : ''} ${x.done ? 'done' : ''}">
@@ -1026,6 +1032,14 @@ function personRow(day, first, it, id) {
       </button>
       <button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>
     </div>`;
+}
+
+// Regelmäßige Aufgabe/Erinnerung: heute schon erledigt?
+function todayState(t) {
+  const today = D.todayKey();
+  if (!occursOn(t, today)) return '';
+  const done = state.data.task_completions.some((x) => x.task_id === t.id && x.date === today);
+  return done ? ` · <span class="today-ok">heute ${ic('check')}</span>` : ' · <span class="today-open">heute offen</span>';
 }
 
 function viewPerson() {
@@ -1043,7 +1057,8 @@ function viewPerson() {
     const day = D.addDays(today, i);
     const events = eventsOn(day).filter((o) => mine(eventPeople(o.ev)));
     const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => mine(peopleOf(x.t)));
-    const tasks = tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)) && !x.missed);
+    // Heute: alles Fällige inkl. Verpasstem (zum Abhaken); später nur Einmaliges
+    const tasks = i === 0 ? mergeMissed(tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)))) : tasksOn(day, { filter: false }).filter((x) => mine(peopleOf(x.t)) && !x.missed);
     if (events.length) has.events = true;
     if (reminders.length) has.reminders = true;
     if (tasks.length) has.tasks = true;
@@ -1052,10 +1067,10 @@ function viewPerson() {
     for (const x of [...reminders, ...tasks]) if (x.recurring) seriesTasks.set(x.t.id, x.t);
     const items = [
       ...(show('events') ? events : [])
-        .filter((o) => (!o.weekly || o.cancelled) && (!o.multi || o.day === o.ev.date || i === 0))
+        .filter((o) => (i === 0 || !o.weekly || o.cancelled) && (!o.multi || o.day === o.ev.date || i === 0))
         .map((o) => ({ type: 'ev', o, sort: o.sort })),
-      ...(show('reminders') ? reminders : []).filter((x) => !x.recurring).map((x) => ({ type: 'task', x, sort: D.hm(x.t.due_time) || '' })),
-      ...(show('tasks') ? tasks : []).filter((x) => !x.recurring).map((x) => ({ type: 'task', x, sort: D.hm(x.t.due_time) || '' })),
+      ...(show('reminders') ? reminders : []).filter((x) => i === 0 || !x.recurring).map((x) => ({ type: 'task', x, sort: D.hm(x.t.due_time) || '' })),
+      ...(show('tasks') ? tasks : []).filter((x) => i === 0 || !x.recurring).map((x) => ({ type: 'task', x, sort: D.hm(x.t.due_time) || '' })),
     ].sort((a, b) => a.sort.localeCompare(b.sort));
     if (items.length) days.push({ day, items });
   }
@@ -1074,7 +1089,7 @@ function viewPerson() {
       .map(
         (t) => `<li><button class="reg-row" data-action="edit-task" data-id="${t.id}">
           <span class="reg-ic">${ic(isReminder(t) ? 'bell' : 'task')}</span>
-          <span class="grow-col"><span class="title">${esc(t.title)}</span><span class="muted small">${esc([rhythmText(t), t.due_time ? D.hm(t.due_time) : ''].filter(Boolean).join(' · '))}</span></span>
+          <span class="grow-col"><span class="title">${esc(t.title)}</span><span class="muted small">${esc([rhythmText(t), t.due_time ? D.hm(t.due_time) : ''].filter(Boolean).join(' · '))}${todayState(t)}</span></span>
         </button></li>`
       ),
   ];
