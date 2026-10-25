@@ -1355,8 +1355,7 @@ function viewMonat() {
               .map(
                 (day) => `<button class="m-day ${day.slice(5, 7) !== monthNo ? 'other' : ''} ${day === today ? 'today' : ''} ${day === sel ? 'sel' : ''}
                   ${holidayOn(day, state.land) ? 'hol' : ''} ${schoolHolidayOn(day, state.land) ? 'ferien' : ''}" data-action="month-day" data-day="${day}">
-                  <span class="m-num">${D.fromKey(day).getDate()}</span>
-                  ${birthdaysOn(day).length ? '<span class="m-cake" aria-label="Geburtstag">🎂</span>' : ''}
+                  <span class="m-num">${D.fromKey(day).getDate()}${birthdaysOn(day).length ? '<span class="m-cake" aria-label="Geburtstag">🎂</span>' : ''}</span>
                   ${barsFor(day, lanes)}
                   <span class="m-dots">${dotsFor(day, lanes)}</span>
                 </button>`

@@ -4065,12 +4065,15 @@ details[open] > summary .sum-ic {
 .time-hint {
   margin: -4px 2px 8px;
 }
-/* Monat: Geburtstag als kleiner Kuchen oben rechts, getrennt von den Termin-Punkten */
+/* Monat: Geburtstag als kleines Abzeichen an der Tageszahl (unten rechts am Kreis) */
+.m-num {
+  position: relative;
+}
 .m-cake {
   position: absolute;
-  top: 1px;
-  right: 1px;
-  font-size: 7px;
+  right: -7px;
+  bottom: 0;
+  font-size: 9px;
   line-height: 1;
   pointer-events: none;
 }
