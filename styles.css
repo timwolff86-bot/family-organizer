@@ -4294,3 +4294,23 @@ details[open] > summary .sum-ic {
 .shops-list .link {
   font-size: 14px;
 }
+/* Einkauf: Abgehaktes bleibt stehen, leiser */
+.shop-card .shop-list li.done .name {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.shop-card .shop-list li.done .amount,
+.shop-card .shop-list li.done .item-note {
+  opacity: 0.6;
+}
+.cat-sub.all-done {
+  opacity: 0.6;
+}
+.cat-sub .muted .ic {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+.shop-all-done {
+  margin-top: 10px;
+}

@@ -1811,15 +1811,18 @@ function viewEinkauf() {
   const items = state.data.shopping_items;
   const quick = quickItems();
   const open = items.filter((i) => !i.done);
-  const done = items.filter((i) => i.done);
+  const done = items.filter((i) => i.done && (!state.shopFilter || sameShop(shopOf(i), state.shopFilter)));
   // Läden der offenen Artikel, häufigster zuerst; Filter nur, wenn es mehrere gibt
   const counts = new Map();
   for (const i of open) counts.set(shopOf(i), (counts.get(shopOf(i)) || 0) + 1);
   const shops = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  if (state.shopFilter && !counts.has(state.shopFilter)) state.shopFilter = null;
+  // Gewählter Laden bleibt, solange dort noch etwas steht (auch Abgehaktes)
+  if (state.shopFilter && !items.some((i) => sameShop(shopOf(i), state.shopFilter))) state.shopFilter = null;
   const sf = state.shopFilter;
+  if (sf && !counts.has(sf)) shops.push([sf, 0]);
   const mainShop = shops[0]?.[0];
-  const visible = open.filter((i) => !sf || shopOf(i) === sf);
+  // Abgehaktes bleibt an seinem Platz stehen (durchgestrichen) – bis "Erledigte entfernen"
+  const visible = items.filter((i) => !sf || sameShop(shopOf(i), sf));
 
   const row = (i) => `<li class="${i.done ? 'done' : ''}">
       <button class="check" data-action="toggle-item" data-id="${i.id}" aria-label="Abhaken">${i.done ? ic('check') : ''}</button>
@@ -1834,7 +1837,8 @@ function viewEinkauf() {
   const groups = CATEGORIES.map((cat) => {
     const list = visible.filter((i) => itemCategory(i) === cat.id).sort((a, b) => a.name.localeCompare(b.name));
     if (!list.length) return '';
-    return `<div class="cat-sub"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted">${list.length}</span></div>
+    const left = list.filter((i) => !i.done).length;
+    return `<div class="cat-sub ${left ? '' : 'all-done'}"><span class="cat-icon">${cat.icon}</span>${esc(cat.label)} <span class="muted">${left || ic('check')}</span></div>
       <ul class="shop-list" data-longpress="item">${list.map(row).join('')}</ul>`;
   }).join('');
 
@@ -1854,16 +1858,8 @@ function viewEinkauf() {
       }
       <button class="filter-chip shops-btn" data-action="shops">${ic('pencil')}Läden</button>
     </div>
-    ${groups ? `<div class="card shop-card">${groups}</div>` : `<p class="empty">${items.length ? 'Alles erledigt.' : 'Die Liste ist leer.'}</p>`}
-    ${
-      done.length
-        ? `<details class="done-box">
-            <summary><span>Erledigt <span class="muted">${done.length}</span></span>${ic('down', 'sum-ic')}</summary>
-            <ul class="card shop-list" data-longpress="item">${[...done].sort((a, b) => a.name.localeCompare(b.name)).map(row).join('')}</ul>
-            <button class="btn ghost wide" data-action="clear-done">Erledigte entfernen</button>
-          </details>`
-        : ''
-    }
+    ${groups ? `<div class="card shop-card">${groups}</div>` : '<p class="empty">Die Liste ist leer.</p>'}
+    ${items.length && !open.length ? '<p class="muted small center shop-all-done">Alles erledigt 🎉</p>' : ''}
     ${
       quick.length
         ? `<section><h2>Häufig gekauft</h2><div class="quick">${quick
@@ -1874,7 +1870,8 @@ function viewEinkauf() {
         : ''
     }
     <div class="shop-actions">
-      ${open.length ? `<button class="btn ghost" data-action="copy-list">${ic('copy')}Liste kopieren</button>` : ''}
+      ${visible.some((i) => !i.done) ? `<button class="btn ghost" data-action="copy-list">${ic('copy')}Liste kopieren</button>` : ''}
+      ${done.length ? `<button class="btn ghost" data-action="clear-done">${ic('check')}Erledigte entfernen (${done.length})</button>` : ''}
     </div>`;
 }
 
@@ -3709,7 +3706,9 @@ const actions = {
     render();
   },
   'clear-done': () => {
-    const done = state.data.shopping_items.filter((i) => i.done).map((i) => i.id);
+    const done = state.data.shopping_items
+      .filter((i) => i.done && (state.view !== 'einkauf' || !state.shopFilter || sameShop(shopOf(i), state.shopFilter)))
+      .map((i) => i.id);
     removeWithUndo('shopping_items', done, `${done.length} erledigte entfernt`);
   },
   'copy-list': async () => {
