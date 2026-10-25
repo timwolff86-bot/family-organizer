@@ -4387,3 +4387,16 @@ details[open] > summary .sum-ic {
   width: 18px;
   height: 18px;
 }
+/* Geburtstage: Monat als Zwischenüberschrift */
+.list .bd-month {
+  padding: 12px 14px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-top: 1px solid var(--line);
+}
+.list .bd-month:first-child {
+  border-top: 0;
+}

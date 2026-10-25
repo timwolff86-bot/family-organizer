@@ -2411,6 +2411,37 @@ function searchRow(x) {
     </li>`;
 }
 
+// Suche ohne Eingabe: das Nächste, was ansteht (ohne Regelmäßiges, das wäre jeden Tag dasselbe)
+function upcomingPreview(kind = 'alle') {
+  const want = (k) => kind === 'alle' || kind === k;
+  const today = D.todayKey();
+  const out = [];
+  for (let i = 0; i < 60 && out.length < 6; i++) {
+    const day = D.addDays(today, i);
+    if (want('geburtstag'))
+      for (const b of birthdaysOn(day)) {
+        const age = ageOn(b, day);
+        out.push({ kind: 'geburtstag', day, title: b.name, people: [], sub: `Geburtstag${age ? ` (${age})` : ''}`, attrs: `data-action="search-open" data-kind="geburtstag" data-id="${b.id}"` });
+      }
+    if (want('termin'))
+      for (const o of eventsOn(day)) {
+        if (o.weekly || o.cancelled || (o.multi && day !== o.ev.date && i > 0)) continue;
+        const time = o.time && o.time !== 'Ganztägig' ? o.time : '';
+        out.push({ kind: 'termin', day, title: o.ev.title, people: eventPeople(o.ev), sub: [time, o.ev.location].filter(Boolean).join(' · '), attrs: `data-action="search-open" data-kind="termin" data-id="${o.ev.id}" data-day="${day}"` });
+      }
+    for (const [k, list] of [
+      ['erinnerung', want('erinnerung') ? tasksOn(day, { filter: false, kind: 'erinnerung' }) : []],
+      ['aufgabe', want('aufgabe') ? tasksOn(day, { filter: false }) : []],
+    ])
+      for (const x of list) {
+        if (x.recurring || x.done || x.overdue || x.undated) continue;
+        out.push({ kind: k, day, title: x.t.title, people: peopleOf(x.t), sub: x.t.due_time ? D.hm(x.t.due_time) : '', attrs: `data-action="search-open" data-kind="task" data-id="${x.t.id}"` });
+      }
+  }
+  if (!out.length) return '';
+  return `<h3 class="sr-head">Als Nächstes</h3><ul class="card list sr-list">${out.slice(0, 6).map(searchRow).join('')}</ul>`;
+}
+
 function renderSearchResults() {
   const box = $('#search-results');
   if (!box || !state.data) return;
@@ -2418,6 +2449,7 @@ function renderSearchResults() {
   if (empty && state.search.kind !== 'geburtstag' && state.search.kind !== 'rezept') {
     const ex = JSON.parse(box.dataset.examples || '[]');
     box.innerHTML = `
+      ${upcomingPreview(state.search.kind)}
       <p class="muted search-hint">Findet auch Wortteile und Tippfehler. Personen und Zeiträume lassen sich dazuschreiben, z. B.:</p>
       <div class="chip-row wrap">${ex.map((e) => `<button type="button" class="filter-chip" data-action="search-example" data-q="${esc(e)}">${esc(e)}</button>`).join('')}</div>`;
     return;
@@ -3237,10 +3269,15 @@ function viewGeburtstage() {
             ? [...state.data.birthdays]
                 .map((b) => ({ b, next: nextBirthday(b) }))
                 .sort((x, y) => x.next.localeCompare(y.next))
-                .map(({ b, next }) => {
+                .map(({ b, next }, i, all) => {
+                  // Überschrift, sobald ein neuer Monat beginnt
+                  const month = next.slice(0, 7);
+                  const head = i === 0 || all[i - 1].next.slice(0, 7) !== month
+                    ? `<li class="bd-month">${MONTHS[Number(next.slice(5, 7)) - 1]}${next.slice(0, 4) !== D.todayKey().slice(0, 4) ? ` ${next.slice(0, 4)}` : ''}</li>`
+                    : '';
                   const days = Math.round((D.fromKey(next) - D.fromKey(D.todayKey())) / 86400000);
                   const age = ageOn(b, next);
-                  return `<li><button data-action="edit-birthday" data-id="${b.id}">
+                  return `${head}<li><button data-action="edit-birthday" data-id="${b.id}">
                     <span class="grow">${esc(b.name)}</span>
                     <span class="muted small bd-when">${b.day}. ${MONTHS[b.month - 1]}${age ? ` · wird ${age}` : ''}<br />
                       <b>${days === 0 ? 'heute 🎉' : days === 1 ? 'morgen' : `in ${days} Tagen`}</b></span>
