@@ -4062,3 +4062,6 @@ details[open] > summary .sum-ic {
   background: var(--warn-soft);
   color: var(--warn);
 }
+.time-hint {
+  margin: -4px 2px 8px;
+}

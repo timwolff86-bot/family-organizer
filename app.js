@@ -2690,7 +2690,6 @@ function eventForm(ev, day) {
   ev ||= { date: day || state.date, member_ids: presetPeople() || [] };
   const weekly = ev.weekdays?.length > 0;
   const multi = !weekly && ev.end_date && ev.end_date > ev.date;
-  const allDay = !!ev.all_day;
   const o = !isNew && day ? eventsOn(day).find((x) => x.ev.id === ev.id) : null;
   // Ein bestimmter Termin einer Serie: beim Sichern wird gefragt, wofür die Änderung gilt
   const occurrence = !!(o && o.weekly);
@@ -2729,11 +2728,11 @@ function eventForm(ev, day) {
       <label>Serie endet am (optional)<input type="date" name="series_end" value="${esc(weekly ? ev.end_date || '' : '')}" /></label>
     </div>
     </div>
-    <label class="check-line"><input type="checkbox" name="all_day" ${allDay ? 'checked' : ''}/> Ganztägig</label>
-    <div class="row" data-times ${allDay ? 'hidden' : ''}>
+    <div class="row" data-times>
       <label><span data-time-label="start">${multi ? 'Beginn (1. Tag)' : 'Beginn'}</span><input type="time" name="start_time" value="${esc(D.hm(ev.start_time))}" /></label>
       <label><span data-time-label="end">${multi ? 'Ende (letzter Tag)' : 'Ende'}</span><input type="time" name="end_time" value="${esc(D.hm(ev.end_time))}" /></label>
     </div>
+    <p class="muted small time-hint">Ohne Uhrzeit = ganztägig</p>
     ${moreOptions(
       `<label>Wo?<input name="location" value="${esc(ev.location || '')}" /></label>
        <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>
@@ -2758,7 +2757,8 @@ function eventForm(ev, day) {
     isNew ? 'Neuer Termin' : 'Termin bearbeiten',
     inner,
     (f) => {
-      const allDayChecked = f.get('all_day') === 'on';
+      // Keine Uhrzeit eingetragen = ganztägig
+      const allDayChecked = !f.get('start_time');
       const common = {
         title: f.get('title').trim(),
         member_ids: readPeople(),
@@ -3741,7 +3741,11 @@ document.addEventListener('change', async (e) => {
   }
   if (el.name === 'repeat') updateRepeatVisibility(el.form);
   if (el.name === 'rhythm') updateRhythmVisibility(el.form);
-  if (el.name === 'all_day') el.form.querySelector('[data-times]').hidden = el.checked;
+  // Termin: Beginn gesetzt → Ende eine Stunde später vorschlagen (wenn leer oder davor)
+  if (el.name === 'start_time' && el.value && el.form?.elements.end_time && el.form.elements.repeat?.value !== 'multi') {
+    const endEl = el.form.elements.end_time;
+    if (!endEl.value || endEl.value <= el.value) endEl.value = hmPlus(el.value, 60);
+  }
   if (el.name === 'repeat' && el.form.querySelector('[data-time-label]')) {
     const multi = el.value === 'multi';
     el.form.querySelector('[data-time-label="start"]').textContent = multi ? 'Beginn (1. Tag)' : 'Beginn';
