@@ -880,7 +880,7 @@ function viewHeute() {
   const notes = [
     holiday ? `<span class="day-chip hol">🎉 ${esc(holiday.name)}</span>` : '',
     ferien ? `<span class="day-chip">🏖️ ${esc(ferien.name)} <span class="muted">bis ${esc(D.formatDayMonth(ferien.end))}</span></span>` : '',
-    pickupOn(day) ? `<button class="day-chip" data-action="tab" data-tab="abfall">${binsIcons(pickupOn(day).bins)} Abholung${isToday ? ' heute' : ''}: ${esc(binsText(pickupOn(day).bins))}</button>` : '',
+    pickupOn(day) ? `<button class="day-chip" data-action="tab" data-tab="abfall">${binsIcons(pickupOn(day).bins)}${esc(binsText(pickupOn(day).bins))}</button>` : '',
     ...bdays.map((b) => {
       const age = ageOn(b, day);
       return `<button class="day-chip" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(b.name)}${age ? ` <span class="muted">(${age})</span>` : ''}</button>`;
