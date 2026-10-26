@@ -390,7 +390,7 @@ async function removeWithUndo(table, ids, label) {
 }
 
 // Spalte → Datenbank-Update, das sie anlegt (für eine verständliche Meldung)
-const COLUMN_UPDATES = { repeat_until: 13, remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
+const COLUMN_UPDATES = { assigned: 17, created_by: 17, repeat_until: 13, remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
 
 function fail(err) {
   console.error(err);
@@ -2111,6 +2111,7 @@ function pushSection() {
       ([v, l]) => `<option value="${v}" ${Number(row.lead) === v ? 'selected' : ''}>${l}</option>`
     ).join('')}</select></label>` : ''}
     ${toggle('tasks', 'Aufgaben', 'einmal am Tag: deine offenen Aufgaben')}
+    ${'assigned' in row ? toggle('assigned', 'Neu für mich', 'wenn jemand anderes dir einen Termin, eine Aufgabe oder Erinnerung einträgt') : ''}
     <label class="push-sub">Uhrzeit für die Aufgaben-Übersicht<input type="time" data-change="push" name="daily_time" value="${esc(D.hm(row.daily_time) || '07:00')}" />
       <span class="muted small">Gilt auch für Erinnerungen ohne Uhrzeit.</span></label>
     <button class="btn ghost wide" data-action="push-test">Test-Nachricht senden</button>
@@ -3414,6 +3415,9 @@ function eventView(ev, day) {
   sheetOpened();
 }
 
+// Spalte created_by bei Terminen erst ab Update 17 (sonst würde Sichern scheitern)
+const eventsHaveCreator = () => !store.isCloud || state.data.events.some((e) => 'created_by' in e);
+
 function eventForm(ev, day) {
   const isNew = !ev;
   ev ||= { date: day || state.date, member_ids: presetPeople() || [] };
@@ -3552,6 +3556,7 @@ function eventForm(ev, day) {
       if (repeat === 'weekly') endDate = f.get('series_end') || null;
       saveConfirm('events', {
         ...common,
+        ...(isNew && eventsHaveCreator() ? { created_by: state.me || null } : {}),
         id: ev.id,
         // Serie: Beginn behalten (wichtig nach "dieser und alle folgenden")
         date: repeat === 'weekly' ? (weekly ? ev.date ?? null : null) : date,

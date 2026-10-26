@@ -257,6 +257,37 @@ export function dueFor(sub: Sub, data: Data, now: Date): [string, Msg][] {
     }
   }
 
+  // Neu für dich: jemand anderes hat dir gerade etwas eingetragen (Schalter "assigned", Standard an)
+  if (sub.assigned !== false && me) {
+    const nowMs = now.getTime();
+    const fresh = (r: Row) => r.created_at && nowMs - new Date(r.created_at).getTime() <= WINDOW_MIN * 60000 && new Date(r.created_at).getTime() <= nowMs + 60000;
+    const from = (r: Row) => data.members.find((m) => m.id === r.created_by)?.name;
+    const dayText = (k: string) => (k < today ? k.slice(8, 10) + '.' + k.slice(5, 7) + '.' : dayWord(k, today));
+    for (const ev of data.events) {
+      if (!fresh(ev) || !ev.created_by || ev.created_by === me || ev.series_id || !eventPeople(ev).includes(me)) continue;
+      const time = ev.all_day || !ev.start_time ? '' : `${hm(ev.start_time)} Uhr`;
+      const when = ev.weekdays?.length ? `jeden ${ev.weekdays.map((d: number) => WD[d - 1]).join(', ')}` : ev.date ? dayText(ev.date) : '';
+      out.push([
+        `${sub.id}|new|ev|${ev.id}`,
+        { title: `📅 Neu von ${from(ev) || 'jemandem'}: ${ev.title}`, body: [when, time, ev.location].filter(Boolean).join(' · '), day: ev.date || today, tag: `new-ev-${ev.id}` },
+      ]);
+    }
+    for (const t of data.tasks) {
+      if (!fresh(t) || !t.created_by || t.created_by === me || !peopleOf(t).includes(me)) continue;
+      const rem = t.kind === 'erinnerung';
+      const when = rhythmOf(t) ? 'wiederkehrend' : t.due_date ? (rem ? dayText(t.due_date) : `bis ${dayText(t.due_date)}`) : 'ohne Datum';
+      out.push([
+        `${sub.id}|new|task|${t.id}`,
+        {
+          title: `${rem ? '🔔 Neue Erinnerung' : '✅ Neue Aufgabe'} von ${from(t) || 'jemandem'}: ${t.title}`,
+          body: [when, t.due_time ? `${hm(t.due_time)} Uhr` : ''].filter(Boolean).join(' · '),
+          day: t.due_date && t.due_date >= today ? t.due_date : today,
+          tag: `new-task-${t.id}`,
+        },
+      ]);
+    }
+  }
+
   // Abfallkalender: am Vortag zur eingestellten Uhrzeit (gilt für die gewählten Personen)
   if (sub.reminders && data.waste_pickups?.length) {
     // Ohne Einstellung wie in der App: alle Erwachsenen

@@ -225,6 +225,10 @@ create table if not exists public.app_settings (
   created_at timestamptz not null default now()
 );
 
+-- Push "Neu für dich" (Update 17)
+alter table public.events add column if not exists created_by uuid references public.members (id) on delete set null;
+alter table public.push_subscriptions add column if not exists assigned boolean not null default true;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
