@@ -265,7 +265,10 @@ export function dueFor(sub: Sub, data: Data, now: Date): [string, Msg][] {
     const forMe = !s.people?.length || (me && s.people.includes(me));
     const p = data.waste_pickups.find((x) => x.date === addDays(today, 1) && x.bins?.length);
     if (s.on && forMe && p && !p.put_out_at && due(at(today, toMin(s.time) ?? 19 * 60))) {
-      const what = p.bins.map((b: string) => BIN_LABEL[b] || b).join(' + ');
+      // Eigene Tonnen (app_settings 'waste_bins') haben Vorrang vor den Vorgaben
+      const own = data.app_settings?.find((x) => x.key === 'waste_bins')?.value?.list || [];
+      const label = (k: string) => own.find((b: Row) => b.k === k)?.label || BIN_LABEL[k] || k;
+      const what = p.bins.map(label).join(' + ');
       out.push([
         `${sub.id}|waste|${p.id}`,
         { title: `🗑️ ${what} rausstellen`, body: ['Abholung morgen', p.note].filter(Boolean).join(' · '), day: today, tag: `waste-${p.id}` },

@@ -4766,3 +4766,92 @@ details[open] > summary .sum-ic {
 .frow.waste .fr-title .bins {
   margin-right: 4px;
 }
+
+/* Tonnen verwalten */
+.bin-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+}
+.bin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 7px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+.bin-chip .bin {
+  width: 18px;
+  height: 18px;
+}
+.color-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.color-pick label {
+  position: relative;
+  overflow: hidden;
+}
+.color-pick input {
+  position: absolute;
+  opacity: 0;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+}
+.color-pick span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+}
+.color-pick .bin {
+  width: 24px;
+  height: 24px;
+}
+.color-pick input:checked + span {
+  border-color: var(--accent);
+  border-width: 2.5px;
+  background: var(--accent-soft);
+}
+.own-color {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 15px;
+}
+.own-color input {
+  width: 48px;
+  height: 34px;
+  padding: 2px;
+}
+/* Dunkles Design: Tonnen mit hellem Rand, damit auch Schwarz (Restmüll) sichtbar bleibt */
+:root[data-theme='dark'] .bin > rect,
+:root[data-theme='dark'] .bin > path:first-of-type {
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 1.1;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .bin > rect,
+  :root:not([data-theme='light']) .bin > path:first-of-type {
+    stroke: rgba(255, 255, 255, 0.7);
+    stroke-width: 1.1;
+  }
+}
+.sheet-body label.own-color {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}

@@ -2287,17 +2287,24 @@ function viewMehr() {
 
 /* ================= Abfallkalender ================= */
 
-const BINS = [
-  { k: 'rest', label: 'Restmüll', color: '#6b7480', words: ['rest', 'grau', 'schwarz', 'hausmüll'] },
-  { k: 'bio', label: 'Biotonne', color: '#8a5a2b', words: ['bio', 'braun', 'grün', 'kompost'] },
+// Tonnen: Vorgabe, von der Familie änderbar (app_settings 'waste_bins')
+const DEFAULT_BINS = [
+  { k: 'rest', label: 'Restmüll', color: '#1f2328', words: ['rest', 'grau', 'schwarz', 'hausmüll'] },
+  { k: 'bio', label: 'Biotonne', color: '#2f9e44', words: ['bio', 'braun', 'grün', 'kompost'] },
   { k: 'papier', label: 'Papier', color: '#2563eb', words: ['papier', 'blau', 'pappe', 'ppk'] },
   { k: 'gelb', label: 'Gelbe Tonne', color: '#e3b008', words: ['gelb', 'wertstoff', 'verpackung', 'lvp'] },
-  { k: 'sonst', label: 'Sonstiges', color: '#15803d', words: ['sperr', 'schadstoff', 'baum', 'grünschnitt', 'glas'] },
+  { k: 'sonst', label: 'Sonstiges', color: '#ea580c', words: ['sperr', 'schadstoff', 'baum', 'grünschnitt'] },
 ];
-const binOf = (k) => BINS.find((b) => b.k === k) || BINS[4];
+const BIN_COLORS = ['#1f2328', '#6b7480', '#2f9e44', '#8a5a2b', '#2563eb', '#e3b008', '#ea580c', '#dc2626', '#db2777', '#7c3aed', '#0891b2', '#a3a3a3'];
+const bins = () => {
+  const list = (state.data.app_settings || []).find((x) => x.key === 'waste_bins')?.value?.list;
+  return Array.isArray(list) && list.length ? list : DEFAULT_BINS;
+};
+const saveBins = (list) => save('app_settings', { key: 'waste_bins', value: { list } }, 'key', { quiet: true });
+const binOf = (k) => bins().find((b) => b.k === k) || { k, label: k, color: '#a3a3a3', words: [] };
 const wasteReady = () => !state.data.missing?.includes('waste_pickups');
-const binIcon = (k, cls = '') =>
-  `<svg class="bin ${cls}" viewBox="0 0 24 24" aria-hidden="true" style="color:${binOf(k).color}"><rect x="4" y="3" width="16" height="3.2" rx="1.2" fill="currentColor"/><path d="M5.6 7.6h12.8l-1.2 12.6a1.6 1.6 0 0 1-1.6 1.4H8.4a1.6 1.6 0 0 1-1.6-1.4z" fill="currentColor"/><path d="M10 10.5v8M14 10.5v8" stroke="#fff" stroke-opacity=".55" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const binIcon = (k, cls = '', color = null) =>
+  `<svg class="bin ${cls}" viewBox="0 0 24 24" aria-hidden="true" style="color:${esc(color || binOf(k).color)}"><rect x="4" y="3" width="16" height="3.2" rx="1.2" fill="currentColor"/><path d="M5.6 7.6h12.8l-1.2 12.6a1.6 1.6 0 0 1-1.6 1.4H8.4a1.6 1.6 0 0 1-1.6-1.4z" fill="currentColor"/><path d="M10 10.5v8M14 10.5v8" stroke="#fff" stroke-opacity=".55" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const binsText = (bins) => (bins || []).map((k) => binOf(k).label).join(' + ');
 const binsIcons = (bins) => `<span class="bins">${(bins || []).map((k) => binIcon(k)).join('')}</span>`;
 
@@ -2341,10 +2348,13 @@ function parseWaste(text) {
   const byDate = new Map();
   const add = (date, label) => {
     const l = (label || '').toLowerCase();
-    const hits = BINS.filter((b) => b.words.some((w) => l.includes(w))).map((b) => b.k);
-    const bins = hits.length ? hits : ['sonst'];
+    const list = bins();
+    const words = (b) => [...(b.words || []), b.label.toLowerCase()];
+    let hits = list.filter((b) => words(b).some((w) => w && l.includes(w))).map((b) => b.k);
+    if (hits.length > 1) hits = hits.filter((k) => k !== 'sonst'); // genauere Tonne gewinnt
+    const found = hits.length ? hits : [(list.find((b) => b.k === 'sonst') || list[list.length - 1]).k];
     const cur = byDate.get(date) || new Set();
-    bins.forEach((b) => cur.add(b));
+    found.forEach((b) => cur.add(b));
     byDate.set(date, cur);
   };
   if (/BEGIN:VEVENT/.test(text)) {
@@ -2362,7 +2372,7 @@ function parseWaste(text) {
       if (date) add(date, line.replace(m[0], ''));
     }
   }
-  return [...byDate.entries()].map(([date, bins]) => ({ date, bins: BINS.map((b) => b.k).filter((k) => bins.has(k)) })).sort((a, b) => a.date.localeCompare(b.date));
+  return [...byDate.entries()].map(([date, found]) => ({ date, bins: bins().map((b) => b.k).filter((k) => found.has(k)) })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // Bisherige Müll-Erinnerungen (aus dem SQL) erkennen: Erinnerung am Vortag mit "rausstellen"
@@ -2446,6 +2456,12 @@ function viewAbfall() {
       </div>
     </section>
     <section>
+      <div class="section-head"><h2>Tonnen</h2><button class="link" data-action="bin-new">${ic('plus')}Tonne</button></div>
+      <div class="card bin-list">${bins()
+        .map((b) => `<button class="bin-chip" data-action="bin-edit" data-k="${esc(b.k)}">${binIcon(b.k)}<span>${esc(b.label)}</span></button>`)
+        .join('')}</div>
+    </section>
+    <section>
       <div class="section-head"><h2>Abholtage</h2><button class="link" data-action="waste-import">${ic('copy')}Mehrere einfügen</button></div>
       ${
         list.length
@@ -2463,7 +2479,7 @@ function wasteForm(p) {
     isNew ? 'Abholtag' : 'Abholtag bearbeiten',
     `<label>Datum der Abholung<input type="date" name="date" value="${esc(p.date)}" required /></label>
      <div class="field-label">Welche Tonnen?</div>
-     <div class="bin-pick">${BINS.map(
+     <div class="bin-pick">${bins().map(
        (b) => `<label><input type="checkbox" name="bin" value="${b.k}" ${p.bins?.includes(b.k) ? 'checked' : ''}/><span>${binIcon(b.k)}${b.label}</span></label>`
      ).join('')}</div>
      <label>Notiz <span class="muted small">(optional)</span><input name="note" value="${esc(p.note || '')}" placeholder="z. B. vorgezogen, bis 6 Uhr rausstellen" /></label>`,
@@ -2477,6 +2493,38 @@ function wasteForm(p) {
       closeSheet();
     },
     isNew ? '' : `<button type="button" class="btn danger wide" data-action="waste-delete" data-id="${p.id}">Abholtag löschen</button>`,
+    { compact: true }
+  );
+}
+
+function binForm(b) {
+  const isNew = !b;
+  b ||= { k: '', label: '', color: BIN_COLORS[10], words: [] };
+  const used = (state.data.waste_pickups || []).filter((p) => p.bins?.includes(b.k) && p.date >= D.todayKey()).length;
+  openSheet(
+    isNew ? 'Neue Tonne' : 'Tonne bearbeiten',
+    `<label>Name<input name="label" value="${esc(b.label)}" required placeholder="z. B. Glas, Grünschnitt, Sperrmüll" /></label>
+     <div class="field-label">Farbe</div>
+     <div class="color-pick">${[...new Set([...BIN_COLORS, b.color])]
+       .map((c) => `<label><input type="radio" name="color" value="${c}" ${c === b.color ? 'checked' : ''}/><span style="--c:${c}">${binIcon(null, '', c)}</span></label>`)
+       .join('')}</div>
+     <label class="plain own-color">Eigene Farbe <input type="color" name="custom" value="${esc(b.color)}" /></label>
+     <label>Erkennungswörter <span class="muted small">– fürs Einfügen aus Text/Kalenderdatei, mit Komma</span>
+       <input name="words" value="${esc((b.words || []).join(', '))}" placeholder="z. B. glas, altglas" /></label>`,
+    (f) => {
+      const label = f.get('label').trim();
+      if (!label) return;
+      const color = f.get('color') || f.get('custom') || b.color;
+      const words = (f.get('words') || '').split(',').map((w) => w.trim().toLowerCase()).filter(Boolean);
+      const list = bins().map((x) => ({ ...x }));
+      if (isNew) list.push({ k: `t${Date.now().toString(36)}`, label, color, words });
+      else Object.assign(list.find((x) => x.k === b.k), { label, color, words });
+      saveBins(list);
+      closeSheet();
+    },
+    isNew
+      ? ''
+      : `<button type="button" class="btn danger wide" data-action="bin-delete" data-k="${esc(b.k)}">Tonne entfernen${used ? ` (steht an ${used} ${used === 1 ? 'Abholtag' : 'Abholtagen'})` : ''}</button>`,
     { compact: true }
   );
 }
@@ -4194,6 +4242,18 @@ const actions = {
     actions['open-recipe'](d);
   },
   'waste-new': () => wasteForm(null),
+  'bin-new': () => binForm(null),
+  'bin-edit': (d) => binForm(bins().find((b) => b.k === d.k)),
+  'bin-delete': (d) => {
+    const list = bins().filter((b) => b.k !== d.k);
+    if (!list.length) return toast('Mindestens eine Tonne muss bleiben.');
+    saveBins(list);
+    // An Abholtagen austragen; Tage ohne Tonne bleiben leer stehen und können gelöscht werden
+    for (const p of (state.data.waste_pickups || []).filter((x) => x.bins?.includes(d.k)))
+      save('waste_pickups', { id: p.id, bins: p.bins.filter((k) => k !== d.k) }, 'id', { quiet: true });
+    closeSheet();
+    toast('Tonne entfernt');
+  },
   'waste-edit': (d) => wasteForm((state.data.waste_pickups || []).find((x) => x.id === d.id)),
   'waste-delete': (d) => {
     closeSheet();
@@ -4533,6 +4593,7 @@ document.addEventListener('change', async (e) => {
     save('push_subscriptions', { id: row.id, [el.name]: v });
     return;
   }
+  if (el.name === 'color' && el.closest('.color-pick')) el.form.elements.custom.value = el.value;
   if (el.dataset.change === 'waste-on') return saveWasteSettings({ on: el.checked });
   if (el.dataset.change === 'waste-time') return el.value && saveWasteSettings({ time: el.value });
   if (el.id === 'waste-file' && el.files?.[0]) {
@@ -4595,6 +4656,11 @@ document.addEventListener('input', (e) => {
   if (el.id === 'search-q') {
     state.search.q = el.value;
     renderSearchResults();
+    return;
+  }
+  // Tonnenfarbe: eigene Farbe gewählt → Vorgaben abwählen
+  if (el.name === 'custom' && el.closest('.sheet')) {
+    el.form.querySelectorAll('input[name="color"]').forEach((r) => (r.checked = false));
     return;
   }
   if (el.id === 'waste-text') {
