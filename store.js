@@ -88,13 +88,27 @@ export async function signOut() {
   if (sb) await sb.auth.signOut();
 }
 
-export function subscribe(onChange) {
+// Live-Änderungen der anderen Geräte. onStatus(true/false): Verbindung steht / ist weg.
+// Bricht die Verbindung ab (Netzwechsel, Handy schläft), wird sie neu aufgebaut.
+let channel = null;
+let retry = null;
+export function subscribe(onChange, onStatus = () => {}) {
   if (!sb) return;
-  const ch = sb.channel('family-db');
+  clearTimeout(retry);
+  if (channel) sb.removeChannel(channel);
+  const ch = sb.channel(`family-db-${Date.now()}`);
   for (const table of TABLES) {
     ch.on('postgres_changes', { event: '*', schema: 'public', table }, onChange);
   }
-  ch.subscribe();
+  ch.subscribe((status) => {
+    if (status === 'SUBSCRIBED') return onStatus(true);
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      onStatus(false);
+      if (ch !== channel) return;
+      retry = setTimeout(() => subscribe(onChange, onStatus), 5000);
+    }
+  });
+  channel = ch;
 }
 
 /* ---------- lokaler Speicher ---------- */

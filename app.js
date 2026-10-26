@@ -5333,10 +5333,37 @@ async function startData() {
   }
   seedCatalogs();
   refreshSchoolHolidays(state.land).then((changed) => changed && render());
-  store.subscribe(debounce(() => reload(), 400));
+  startLive();
   render();
   if (store.isCloud) refreshPush();
 }
+
+// Live-Aktualisierung: Änderungen der anderen sofort zeigen.
+// Zusätzlich als Sicherheitsnetz: regelmäßig nachladen, solange die App sichtbar ist
+// (häufiger, wenn die Live-Verbindung gerade weg ist).
+const live = { ok: false, lastReload: 0 };
+const liveReload = debounce(() => {
+  live.lastReload = Date.now();
+  reload();
+}, 400);
+function startLive() {
+  store.subscribe(liveReload, (ok) => {
+    const was = live.ok;
+    live.ok = ok;
+    if (ok && !was) liveReload(); // nach (Wieder-)Verbinden verpasste Änderungen holen
+  });
+}
+setInterval(() => {
+  if (!store.isCloud || !state.session || document.hidden || !state.data) return;
+  const every = live.ok ? 120000 : 20000;
+  if (Date.now() - live.lastReload >= every) liveReload();
+}, 10000);
+window.addEventListener('online', () => {
+  if (!store.isCloud || !state.session) return;
+  startLive();
+  liveReload();
+});
+window.addEventListener('focus', () => store.isCloud && state.session && Date.now() - live.lastReload > 15000 && liveReload());
 
 function debounce(fn, ms) {
   let t;
