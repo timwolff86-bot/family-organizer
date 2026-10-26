@@ -700,10 +700,11 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
   }
   let list = out;
   if (filter && taskFilter() === 'meine') list = list.filter((x) => peopleOf(x.t).includes(state.me));
+  // Feste Reihenfolge (Abhaken verschiebt nichts): ursprünglicher Tag, Uhrzeit, Name
+  const origin = (x) => (x.recurring ? x.day : x.t.due_date || '0000');
   return list.sort(
     (a, b) =>
-      a.done - b.done ||
-      !!b.overdue - !!a.overdue ||
+      origin(a).localeCompare(origin(b)) ||
       (a.t.due_time || '99').localeCompare(b.t.due_time || '99') ||
       a.t.title.localeCompare(b.t.title)
   );
