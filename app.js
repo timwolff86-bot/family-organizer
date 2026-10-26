@@ -44,6 +44,7 @@ const state = {
   noteId: null, // geöffnete Notiz
   noteFilter: null, // Notizen: 'liste' | 'text'
   noteEditing: null, // Text-Notiz gerade im Bearbeiten
+  wastePast: false, // Abfallkalender: auch vergangene Abholtage
   personFilter: null, // Personenansicht: nur Termine/Erinnerungen/Aufgaben
   personRange: 14, // Personenansicht: Tage ab heute (14 → 31 → 92 über "mehr zeigen")
 };
@@ -788,12 +789,15 @@ function flowItems(day) {
   for (const x of tasksOn(day, { filter: false, kind: 'erinnerung' })) {
     items.push({ type: 'rem', x, sort: D.hm(x.t.due_time) || '', past: x.done });
   }
+  const w = wasteFlowItem(day);
+  if (w) items.push(w);
   return items.sort(
-    (a, b) => !!a.off - !!b.off || a.sort.localeCompare(b.sort) || (a.type === 'rem') - (b.type === 'rem') || (a.type === 'ev' ? a.o.ev.title : a.x.t.title).localeCompare(b.type === 'ev' ? b.o.ev.title : b.x.t.title)
+    (a, b) => !!a.off - !!b.off || a.sort.localeCompare(b.sort) || (a.type !== 'ev') - (b.type !== 'ev')
   );
 }
 
 function flowRow(it) {
+  if (it.type === 'waste') return wasteFlowRow(it);
   if (it.type === 'ev') {
     const { o } = it;
     const { ev } = o;
@@ -876,6 +880,7 @@ function viewHeute() {
   const notes = [
     holiday ? `<span class="day-chip hol">🎉 ${esc(holiday.name)}</span>` : '',
     ferien ? `<span class="day-chip">🏖️ ${esc(ferien.name)} <span class="muted">bis ${esc(D.formatDayMonth(ferien.end))}</span></span>` : '',
+    pickupOn(day) ? `<button class="day-chip" data-action="tab" data-tab="abfall">${binsIcons(pickupOn(day).bins)} Abholung${isToday ? ' heute' : ''}: ${esc(binsText(pickupOn(day).bins))}</button>` : '',
     ...bdays.map((b) => {
       const age = ageOn(b, day);
       return `<button class="day-chip" data-action="edit-birthday" data-id="${b.id}">🎂 ${esc(b.name)}${age ? ` <span class="muted">(${age})</span>` : ''}</button>`;
@@ -1212,6 +1217,7 @@ function listDay(day) {
             return lrow('', `🎂 ${esc(b.name)}${age ? ` <span class="muted">(${age})</span>` : ''}`, [], 'bd');
           })
           .join('')}
+        ${pickupOn(day) ? lrow('', `${binsIcons(pickupOn(day).bins)}${esc(binsText(pickupOn(day).bins))}`, [], 'bd waste') : ''}
         ${[
           // Termine und Erinnerungen gemeinsam nach Uhrzeit, Ausgefallenes ans Ende
           ...events.map((o) => ({
@@ -2221,6 +2227,7 @@ function viewMehr() {
       <h2>Organisieren</h2>
       ${notesEntry()}
       ${birthdaysEntry()}
+      ${wasteEntry()}
       <button class="card nav-row" data-action="tab" data-tab="eintraege">
         <span class="nav-icon">🗂️</span>
         <span class="grow-col"><span class="title">Alle Einträge</span><span class="muted small">${entries} Termine, Erinnerungen und Aufgaben verwalten</span></span>
@@ -2276,6 +2283,225 @@ function viewMehr() {
         ${store.isCloud && state.session ? `<p class="muted small">Angemeldet als ${esc(state.session.user.email)}</p><button class="btn ghost" data-action="logout">Abmelden</button>` : ''}
       </div>
     </section>`;
+}
+
+/* ================= Abfallkalender ================= */
+
+const BINS = [
+  { k: 'rest', label: 'Restmüll', color: '#6b7480', words: ['rest', 'grau', 'schwarz', 'hausmüll'] },
+  { k: 'bio', label: 'Biotonne', color: '#8a5a2b', words: ['bio', 'braun', 'grün', 'kompost'] },
+  { k: 'papier', label: 'Papier', color: '#2563eb', words: ['papier', 'blau', 'pappe', 'ppk'] },
+  { k: 'gelb', label: 'Gelbe Tonne', color: '#e3b008', words: ['gelb', 'wertstoff', 'verpackung', 'lvp'] },
+  { k: 'sonst', label: 'Sonstiges', color: '#15803d', words: ['sperr', 'schadstoff', 'baum', 'grünschnitt', 'glas'] },
+];
+const binOf = (k) => BINS.find((b) => b.k === k) || BINS[4];
+const wasteReady = () => !state.data.missing?.includes('waste_pickups');
+const binIcon = (k, cls = '') =>
+  `<svg class="bin ${cls}" viewBox="0 0 24 24" aria-hidden="true" style="color:${binOf(k).color}"><rect x="4" y="3" width="16" height="3.2" rx="1.2" fill="currentColor"/><path d="M5.6 7.6h12.8l-1.2 12.6a1.6 1.6 0 0 1-1.6 1.4H8.4a1.6 1.6 0 0 1-1.6-1.4z" fill="currentColor"/><path d="M10 10.5v8M14 10.5v8" stroke="#fff" stroke-opacity=".55" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const binsText = (bins) => (bins || []).map((k) => binOf(k).label).join(' + ');
+const binsIcons = (bins) => `<span class="bins">${(bins || []).map((k) => binIcon(k)).join('')}</span>`;
+
+// Gemeinsame Einstellung: am Vortag erinnern, Uhrzeit, wer
+function wasteSettings() {
+  const row = (state.data.app_settings || []).find((x) => x.key === 'waste');
+  const adults = members().filter((m) => m.role !== 'kind').map((m) => m.id);
+  return { on: true, time: '19:00', people: adults, ...(row?.value || {}) };
+}
+function saveWasteSettings(patch) {
+  const value = { ...wasteSettings(), ...patch };
+  save('app_settings', { key: 'waste', value }, 'key', { quiet: true });
+}
+const pickupOn = (day) => (state.data.waste_pickups || []).find((p) => p.date === day && p.bins?.length);
+const upcomingPickups = () => [...(state.data.waste_pickups || [])].filter((p) => p.date >= D.todayKey()).sort((a, b) => a.date.localeCompare(b.date));
+
+// Für den Tagesablauf: am Vortag zur eingestellten Uhrzeit "rausstellen"
+function wasteFlowItem(day) {
+  const s = wasteSettings();
+  const p = pickupOn(D.addDays(day, 1));
+  if (!p || !s.on) return null;
+  return { type: 'waste', p, sort: s.time || '19:00', past: !!p.put_out_at };
+}
+function wasteFlowRow(it) {
+  const { p } = it;
+  const s = wasteSettings();
+  const by = p.put_out_by && member(p.put_out_by);
+  return `<div class="frow rem waste ${p.put_out_at ? 'done' : ''}">
+    <button class="fr-open" data-action="tab" data-tab="abfall">
+      <span class="fr-time">${esc(s.time || '19:00')}</span>
+      <span class="fr-body"><span class="fr-title title">${binsIcons(p.bins)}${esc(binsText(p.bins))} rausstellen</span>
+      <span class="fr-sub">Abholung morgen${p.note ? ` · ${esc(p.note)}` : ''}${p.put_out_at && by ? ` · erledigt von ${esc(by.name)}` : ''}</span></span>
+    </button>
+    ${avatarStack(s.people || [])}
+    <button class="check" data-action="waste-out" data-id="${p.id}" aria-label="Rausgestellt">${p.put_out_at ? ic('check') : ''}</button>
+  </div>`;
+}
+
+// Text oder Kalenderdatei (.ics) → Abholtage { date, bins[] }
+function parseWaste(text) {
+  const byDate = new Map();
+  const add = (date, label) => {
+    const l = (label || '').toLowerCase();
+    const hits = BINS.filter((b) => b.words.some((w) => l.includes(w))).map((b) => b.k);
+    const bins = hits.length ? hits : ['sonst'];
+    const cur = byDate.get(date) || new Set();
+    bins.forEach((b) => cur.add(b));
+    byDate.set(date, cur);
+  };
+  if (/BEGIN:VEVENT/.test(text)) {
+    for (const block of text.split('BEGIN:VEVENT').slice(1)) {
+      const d = block.match(/DTSTART[^:\n]*:(\d{4})(\d{2})(\d{2})/);
+      const sum = (block.match(/\nSUMMARY[^:\n]*:(.*)/) || [])[1] || '';
+      if (d) add(`${d[1]}-${d[2]}-${d[3]}`, sum.replace(/\\,/g, ','));
+    }
+  } else {
+    for (const line of text.split('\n')) {
+      let m = line.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+      let date = null;
+      if (m) date = `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${D.pad(Number(m[2]))}-${D.pad(Number(m[1]))}`;
+      else if ((m = line.match(/(\d{4})-(\d{2})-(\d{2})/))) date = `${m[1]}-${m[2]}-${m[3]}`;
+      if (date) add(date, line.replace(m[0], ''));
+    }
+  }
+  return [...byDate.entries()].map(([date, bins]) => ({ date, bins: BINS.map((b) => b.k).filter((k) => bins.has(k)) })).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Bisherige Müll-Erinnerungen (aus dem SQL) erkennen: Erinnerung am Vortag mit "rausstellen"
+const oldWasteReminders = () =>
+  state.data.tasks.filter((t) => t.kind === 'erinnerung' && t.due_date && /rausstellen/i.test(t.notes || '') && t.due_date >= D.addDays(D.todayKey(), -1));
+
+function wasteEntry() {
+  const next = upcomingPickups()[0];
+  const preview = !wasteReady()
+    ? 'Datenbank-Update nötig (update-16.sql)'
+    : next
+      ? `Nächste Abholung: ${D.relativeLabel(next.date) === 'Morgen' ? 'morgen' : D.formatShort(next.date)} · ${binsText(next.bins)}`
+      : 'Abholtage eintragen, Erinnerung am Vortag';
+  return `<button class="card nav-row" data-action="tab" data-tab="abfall">
+    <span class="nav-icon">🗑️</span>
+    <span class="grow-col"><span class="title">Abfallkalender</span><span class="muted small">${esc(preview)}</span></span>
+    <span class="chev">${ic('right')}</span>
+  </button>`;
+}
+
+function viewAbfall() {
+  if (!wasteReady()) return '<div class="banner">Datenbank-Update nötig: bitte supabase/update-16.sql in Supabase ausführen.</div>';
+  const s = wasteSettings();
+  const list = state.wastePast
+    ? [...(state.data.waste_pickups || [])].sort((a, b) => a.date.localeCompare(b.date))
+    : upcomingPickups();
+  const next = upcomingPickups()[0];
+  const old = oldWasteReminders();
+  const rel = (day) => {
+    const r = D.relativeLabel(day);
+    return ['Heute', 'Morgen', 'Übermorgen'].includes(r) ? r : `in ${Math.round((D.fromKey(day) - D.fromKey(D.todayKey())) / 86400000)} Tagen`;
+  };
+  let month = '';
+  const rows = list
+    .map((p) => {
+      const m = p.date.slice(0, 7);
+      const head = m !== month ? `<li class="bd-month">${MONTHS[Number(p.date.slice(5, 7)) - 1]}${p.date.slice(0, 4) !== D.todayKey().slice(0, 4) ? ` ${p.date.slice(0, 4)}` : ''}</li>` : '';
+      month = m;
+      return `${head}<li><button class="waste-row ${p.date < D.todayKey() ? 'past' : ''}" data-action="waste-edit" data-id="${p.id}">
+        <span class="wr-date"><b>${D.WD_SHORT[D.isoWeekday(p.date) - 1]} ${D.fromKey(p.date).getDate()}.</b></span>
+        ${binsIcons(p.bins)}
+        <span class="grow-col"><span>${esc(binsText(p.bins))}</span>${p.note ? `<span class="muted small">${esc(p.note)}</span>` : ''}</span>
+      </button></li>`;
+    })
+    .join('');
+  return `
+    ${
+      old.length
+        ? `<div class="card pad waste-migrate">
+            <p><b>${old.length} Müll-Erinnerungen gefunden</b></p>
+            <p class="muted small">In den Abfallkalender übernehmen? Danach erinnert die App automatisch am Vortag, die einzelnen Erinnerungen werden gelöscht.</p>
+            <button class="btn primary wide" data-action="waste-migrate">Übernehmen</button>
+          </div>`
+        : ''
+    }
+    ${
+      next
+        ? `<div class="card pad waste-next">
+            <span class="muted small">Nächste Abholung · ${esc(rel(next.date))}</span>
+            <div class="wn-main">${binsIcons(next.bins)}<span><b>${esc(binsText(next.bins))}</b><span class="muted">${esc(D.formatLong(next.date))}</span></span></div>
+            ${next.note ? `<p class="muted small">${esc(next.note)}</p>` : ''}
+          </div>`
+        : ''
+    }
+    <section>
+      <h2>Erinnerung</h2>
+      <div class="card set-card">
+        <label class="set-row">
+          <span class="grow-col"><span>Am Vortag erinnern</span><span class="muted small">auf Heute und per Push</span></span>
+          <input type="checkbox" class="switch" data-change="waste-on" ${s.on ? 'checked' : ''} />
+        </label>
+        ${
+          s.on
+            ? `<div class="set-row"><span class="grow-col"><span>Uhrzeit</span></span><input type="time" class="waste-time" data-change="waste-time" value="${esc(s.time || '19:00')}" /></div>
+               <div class="set-row col"><span>Wer wird erinnert?</span>
+                 <div class="waste-people">${members()
+                   .map((m) => `<button class="wp ${s.people?.includes(m.id) ? 'on' : ''}" data-action="waste-person" data-id="${m.id}">${avatar(m, 'xs')}${esc(m.name)}</button>`)
+                   .join('')}</div></div>`
+            : ''
+        }
+      </div>
+    </section>
+    <section>
+      <div class="section-head"><h2>Abholtage</h2><button class="link" data-action="waste-import">${ic('copy')}Mehrere einfügen</button></div>
+      ${
+        list.length
+          ? `<ul class="card list waste-list">${rows}</ul>`
+          : `<div class="card pad"><p class="muted small">Noch keine Abholtage. Oben mit + einzeln eintragen oder mit „Mehrere einfügen“ den Abfuhrkalender deiner Gemeinde übernehmen.</p></div>`
+      }
+      ${(state.data.waste_pickups || []).some((p) => p.date < D.todayKey()) ? `<p class="center"><button class="link" data-action="waste-past">${state.wastePast ? 'Vergangene ausblenden' : 'Vergangene anzeigen'}</button></p>` : ''}
+    </section>`;
+}
+
+function wasteForm(p) {
+  const isNew = !p;
+  p ||= { date: D.addDays(D.todayKey(), 1), bins: [] };
+  openSheet(
+    isNew ? 'Abholtag' : 'Abholtag bearbeiten',
+    `<label>Datum der Abholung<input type="date" name="date" value="${esc(p.date)}" required /></label>
+     <div class="field-label">Welche Tonnen?</div>
+     <div class="bin-pick">${BINS.map(
+       (b) => `<label><input type="checkbox" name="bin" value="${b.k}" ${p.bins?.includes(b.k) ? 'checked' : ''}/><span>${binIcon(b.k)}${b.label}</span></label>`
+     ).join('')}</div>
+     <label>Notiz <span class="muted small">(optional)</span><input name="note" value="${esc(p.note || '')}" placeholder="z. B. vorgezogen, bis 6 Uhr rausstellen" /></label>`,
+    (f) => {
+      const bins = f.getAll('bin');
+      if (!bins.length) return toast('Bitte mindestens eine Tonne wählen.');
+      const date = f.get('date');
+      const other = (state.data.waste_pickups || []).find((x) => x.date === date && x.id !== p.id);
+      if (other) return toast(`Am ${D.formatShort(date)} gibt es schon einen Abholtag.`);
+      save('waste_pickups', { ...(p.id ? { id: p.id } : {}), date, bins, note: f.get('note').trim() || null });
+      closeSheet();
+    },
+    isNew ? '' : `<button type="button" class="btn danger wide" data-action="waste-delete" data-id="${p.id}">Abholtag löschen</button>`,
+    { compact: true }
+  );
+}
+
+function wasteImport() {
+  openSheet(
+    'Mehrere Abholtage einfügen',
+    `<p class="muted small">Entweder die <b>Kalenderdatei (.ics)</b> deiner Gemeinde wählen oder Termine als Text einfügen, eine Zeile pro Termin, z. B.<br />„27.10.2026 Biotonne“ · „03.11.2026 Restmüll, Papier“</p>
+     <label class="btn ghost wide file-btn">${ic('calendar')}Kalenderdatei wählen<input type="file" id="waste-file" accept=".ics,text/calendar" hidden /></label>
+     <label>Oder Text<textarea name="text" id="waste-text" rows="7" placeholder="27.10.2026 Biotonne&#10;03.11.2026 Restmüll, Papier"></textarea></label>
+     <p class="muted small" id="waste-preview"></p>`,
+    (f) => {
+      const found = parseWaste(f.get('text') || '');
+      if (!found.length) return toast('Keine Termine erkannt.');
+      let n = 0;
+      for (const x of found) {
+        const cur = (state.data.waste_pickups || []).find((p) => p.date === x.date);
+        const bins = [...new Set([...(cur?.bins || []), ...x.bins])];
+        save('waste_pickups', { ...(cur ? { id: cur.id } : {}), date: x.date, bins }, 'id', { quiet: true });
+        n++;
+      }
+      closeSheet();
+      toast(`${n} ${n === 1 ? 'Abholtag' : 'Abholtage'} übernommen`);
+    }
+  );
 }
 
 /* ================= Notizen ================= */
@@ -2799,6 +3025,14 @@ function header() {
         </div>`
     );
   }
+  if (state.view === 'abfall') {
+    return `
+      <header class="top sub">
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Mehr</span></button>
+        <span class="head-actions">${wasteReady() ? `<button class="icon-btn" data-action="waste-new" aria-label="Abholtag eintragen">${ic('plus')}</button>` : ''}</span>
+      </header>
+      <div class="sub-title"><h1>Abfallkalender</h1></div>`;
+  }
   if (state.view === 'notizen') {
     return `
       <header class="top sub">
@@ -2883,7 +3117,7 @@ function tabbar() {
   ];
   return `<nav class="tabbar">${tabs
     .map(
-      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege', 'notizen', 'notiz'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
+      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege', 'notizen', 'notiz', 'abfall'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
         <span class="ti">${icon(i)}</span><span>${l}</span></button>`
     )
     .join('')}</nav>`;
@@ -2914,7 +3148,7 @@ function render() {
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege, notizen: viewNotizen, notiz: viewNotiz };
+  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege, notizen: viewNotizen, notiz: viewNotiz, abfall: viewAbfall };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
@@ -3919,7 +4153,7 @@ const actions = {
   },
   back: () => {
     if (navBack()) return;
-    state.view = state.view === 'notiz' ? 'notizen' : ['geburtstage', 'eintraege', 'notizen'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
+    state.view = state.view === 'notiz' ? 'notizen' : ['geburtstage', 'eintraege', 'notizen', 'abfall'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
     state.noteEditing = null;
     window.scrollTo(0, 0);
     render();
@@ -3958,6 +4192,39 @@ const actions = {
   'search-recipe': (d) => {
     state.searchBack = true;
     actions['open-recipe'](d);
+  },
+  'waste-new': () => wasteForm(null),
+  'waste-edit': (d) => wasteForm((state.data.waste_pickups || []).find((x) => x.id === d.id)),
+  'waste-delete': (d) => {
+    closeSheet();
+    removeWithUndo('waste_pickups', d.id, 'Abholtag gelöscht');
+  },
+  'waste-import': () => wasteImport(),
+  'waste-past': () => {
+    state.wastePast = !state.wastePast;
+    render();
+  },
+  'waste-person': (d) => {
+    const people = wasteSettings().people || [];
+    saveWasteSettings({ people: people.includes(d.id) ? people.filter((x) => x !== d.id) : [...people, d.id] });
+  },
+  'waste-out': (d) => {
+    const p = (state.data.waste_pickups || []).find((x) => x.id === d.id);
+    if (p) save('waste_pickups', { id: p.id, put_out_at: p.put_out_at ? null : new Date().toISOString(), put_out_by: p.put_out_at ? null : state.me || null });
+  },
+  'waste-migrate': () => {
+    const old = oldWasteReminders();
+    for (const t of old) {
+      const date = D.addDays(t.due_date, 1);
+      const bins = parseWaste(`${date} ${t.title}`)[0]?.bins || ['sonst'];
+      const cur = (state.data.waste_pickups || []).find((p) => p.date === date);
+      const note = /vorgezogen/i.test(`${t.title} ${t.notes}`) ? 'vorgezogen' : null;
+      save('waste_pickups', { ...(cur ? { id: cur.id } : {}), date, bins: [...new Set([...(cur?.bins || []), ...bins])], ...(note ? { note } : {}) }, 'id', { quiet: true });
+    }
+    const people = [...new Set(old.flatMap((t) => peopleOf(t)))];
+    const times = old.map((t) => D.hm(t.due_time)).filter(Boolean);
+    saveWasteSettings({ on: true, ...(people.length ? { people } : {}), ...(times.length ? { time: times[0] } : {}) });
+    removeWithUndo('tasks', old.map((t) => t.id), `${old.length} Müll-Erinnerungen übernommen`);
   },
   'new-note': () => noteForm(null),
   'note-form': (d) => noteForm((state.data.notes || []).find((x) => x.id === d.id)),
@@ -4266,6 +4533,15 @@ document.addEventListener('change', async (e) => {
     save('push_subscriptions', { id: row.id, [el.name]: v });
     return;
   }
+  if (el.dataset.change === 'waste-on') return saveWasteSettings({ on: el.checked });
+  if (el.dataset.change === 'waste-time') return el.value && saveWasteSettings({ time: el.value });
+  if (el.id === 'waste-file' && el.files?.[0]) {
+    const text = await el.files[0].text();
+    const found = parseWaste(text);
+    $('#waste-text').value = found.map((x) => `${x.date.split('-').reverse().join('.')} ${binsText(x.bins)}`).join('\n');
+    $('#waste-preview').textContent = found.length ? `${found.length} Abholtage erkannt – prüfen und „Sichern“.` : 'In der Datei wurden keine Termine erkannt.';
+    return;
+  }
   if (el.dataset.change === 'nowline') {
     lsSet('fo-nowline', el.checked ? '1' : null);
     return;
@@ -4319,6 +4595,11 @@ document.addEventListener('input', (e) => {
   if (el.id === 'search-q') {
     state.search.q = el.value;
     renderSearchResults();
+    return;
+  }
+  if (el.id === 'waste-text') {
+    const n = parseWaste(el.value).length;
+    $('#waste-preview').textContent = n ? `${n} Abholtage erkannt.` : '';
     return;
   }
   if (el.id === 'note-search') {

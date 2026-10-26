@@ -18,6 +18,8 @@ export const TABLES = [
   'push_subscriptions',
   'shops',
   'notes',
+  'waste_pickups',
+  'app_settings',
 ];
 
 // Tabellen mit vielen Einträgen pro Tag: nur die letzten 60 Tage + Zukunft laden.

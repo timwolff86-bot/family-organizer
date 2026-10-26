@@ -154,7 +154,9 @@ const dayWord = (k: string, today: string) =>
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
-type Data = { members: Row[]; events: Row[]; event_occurrences: Row[]; tasks: Row[]; task_completions: Row[] };
+type Data = { members: Row[]; events: Row[]; event_occurrences: Row[]; tasks: Row[]; task_completions: Row[]; waste_pickups?: Row[]; app_settings?: Row[] };
+
+const BIN_LABEL: Record<string, string> = { rest: 'Restmüll', bio: 'Biotonne', papier: 'Papier', gelb: 'Gelbe Tonne', sonst: 'Sonstiges' };
 
 const eventPeople = (ev: Row): string[] => (ev.member_ids?.length ? ev.member_ids : ev.member_id ? [ev.member_id] : []);
 const peopleOf = (t: Row): string[] => (t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []);
@@ -255,6 +257,22 @@ export function dueFor(sub: Sub, data: Data, now: Date): [string, Msg][] {
     }
   }
 
+  // Abfallkalender: am Vortag zur eingestellten Uhrzeit (gilt für die gewählten Personen)
+  if (sub.reminders && data.waste_pickups?.length) {
+    // Ohne Einstellung wie in der App: alle Erwachsenen
+    const adults = data.members.filter((m) => m.role !== 'kind').map((m) => m.id);
+    const s = { on: true, time: '19:00', people: adults as string[], ...(data.app_settings?.find((x) => x.key === 'waste')?.value || {}) };
+    const forMe = !s.people?.length || (me && s.people.includes(me));
+    const p = data.waste_pickups.find((x) => x.date === addDays(today, 1) && x.bins?.length);
+    if (s.on && forMe && p && !p.put_out_at && due(at(today, toMin(s.time) ?? 19 * 60))) {
+      const what = p.bins.map((b: string) => BIN_LABEL[b] || b).join(' + ');
+      out.push([
+        `${sub.id}|waste|${p.id}`,
+        { title: `🗑️ ${what} rausstellen`, body: ['Abholung morgen', p.note].filter(Boolean).join(' · '), day: today, tag: `waste-${p.id}` },
+      ]);
+    }
+  }
+
   // Aufgaben: eine Sammelnachricht am Tag mit den eigenen offenen Aufgaben
   if (sub.tasks && me && due(at(today, daily))) {
     const open: string[] = [];
@@ -283,14 +301,17 @@ export function dueFor(sub: Sub, data: Data, now: Date): [string, Msg][] {
 
 async function loadData(): Promise<Data> {
   const since = addDays(berlin(new Date()).day, -MISSED_DAYS - 1);
-  const [members, events, event_occurrences, tasks, task_completions] = await Promise.all([
-    db('members?select=id,name'),
+  const optional = (path: string) => db(path).catch(() => []); // Tabelle fehlt noch (Update 16) → leer
+  const [members, events, event_occurrences, tasks, task_completions, waste_pickups, app_settings] = await Promise.all([
+    db('members?select=id,name,role'),
     db('events?select=*'),
     db(`event_occurrences?select=event_id,date,cancelled&date=gte.${since}`),
     db('tasks?select=*'),
     db(`task_completions?select=task_id,date&date=gte.${since}`),
+    optional(`waste_pickups?select=*&date=gte.${since}`),
+    optional('app_settings?select=key,value'),
   ]);
-  return { members, events, event_occurrences, tasks, task_completions };
+  return { members, events, event_occurrences, tasks, task_completions, waste_pickups, app_settings };
 }
 
 export async function runOnce(now = new Date()) {

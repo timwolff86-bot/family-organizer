@@ -208,12 +208,29 @@ create table if not exists public.notes (
   updated_at timestamptz not null default now()
 );
 
+-- Abfallkalender und gemeinsame Einstellungen (Update 16)
+create table if not exists public.waste_pickups (
+  id uuid primary key default gen_random_uuid(),
+  date date not null unique,
+  bins text[] not null default '{}',
+  note text,
+  put_out_at timestamptz,
+  put_out_by uuid references public.members (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.app_settings (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  value jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
 declare t text;
 begin
-  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays','push_subscriptions','shops','notes'] loop
+  foreach t in array array['members','events','event_occurrences','tasks','task_completions','meals','shopping_items','products','recipes','birthdays','push_subscriptions','shops','notes','waste_pickups','app_settings'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "familie" on public.%I', t);
     execute format('create policy "familie" on public.%I for all to authenticated using (true) with check (true)', t);

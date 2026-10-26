@@ -4619,3 +4619,150 @@ details[open] > summary .sum-ic {
 .nl-tip {
   margin: 8px 4px 0;
 }
+
+/* ===== Abfallkalender ===== */
+.bin {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  vertical-align: -3px;
+}
+.bins {
+  display: inline-flex;
+  gap: 1px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.fr-title .bins .bin,
+.lrow .bins .bin,
+.day-chip .bins .bin {
+  width: 15px;
+  height: 15px;
+}
+.day-chip .bins {
+  margin-right: 3px;
+}
+.waste-next {
+  margin-bottom: 4px;
+}
+.wn-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.wn-main .bins .bin {
+  width: 30px;
+  height: 30px;
+}
+.wn-main > span:last-child {
+  display: flex;
+  flex-direction: column;
+  font-size: 17px;
+}
+.waste-list .waste-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  text-align: left;
+}
+.waste-row.past {
+  opacity: 0.5;
+}
+.wr-date {
+  width: 52px;
+  flex: none;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.waste-row .bins .bin {
+  width: 18px;
+  height: 18px;
+}
+.waste-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.waste-people .wp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px 5px 5px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--card);
+}
+.waste-people .wp.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.waste-people .wp:not(.on) .av {
+  opacity: 0.45;
+}
+.waste-time {
+  width: auto;
+  padding: 7px 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--card-2);
+}
+.bin-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.bin-pick label {
+  position: relative;
+  overflow: hidden;
+}
+.bin-pick input {
+  position: absolute;
+  opacity: 0;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+}
+.bin-pick span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  font-weight: 600;
+  font-size: 15px;
+}
+.bin-pick .bin {
+  width: 20px;
+  height: 20px;
+}
+.bin-pick input:checked + span {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.waste-migrate {
+  border: 1.5px solid var(--accent);
+  margin-bottom: 4px;
+}
+.waste-migrate p {
+  margin: 0 0 8px;
+}
+.file-btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.frow.waste .fr-title .bins {
+  margin-right: 4px;
+}
