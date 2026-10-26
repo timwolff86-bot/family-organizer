@@ -5269,6 +5269,18 @@ window.addEventListener(
   { passive: true }
 );
 
+// App ist offen = Nachrichten gesehen: eigene Push-Nachrichten aus der Leiste räumen
+// (damit verschwindet auch der Punkt am App-Symbol)
+function clearNotifications() {
+  if (document.hidden || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready
+    .then((reg) => reg.getNotifications?.())
+    .then((list) => (list || []).forEach((n) => n.close()))
+    .catch(() => {});
+}
+clearNotifications();
+document.addEventListener('visibilitychange', clearNotifications);
+
 // Wieder geöffnet: aktuelle Daten holen. Nach längerer Pause zurück auf "Heute".
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
