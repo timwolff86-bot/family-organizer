@@ -1531,7 +1531,7 @@ function weekMealPlan() {
       <button class="plan-open" data-action="${r ? 'open-recipe' : 'pick-recipe'}" data-id="${r?.id || ''}" data-day="${day}">
         <span class="pd-day">${esc(label)}</span>
         <span class="pd-meal">${
-          meal ? `<span class="pd-emoji">${mealIcon(meal)}</span>${esc(meal.text)}` : `${ic('plus')}Essen planen`
+          meal ? `<span class="pd-emoji">${mealIcon(meal)}</span><span class="pd-text">${esc(meal.text)}</span>` : `${ic('plus')}Essen planen`
         }</span>
       </button>
       ${meal ? `<button class="icon-btn" data-action="pick-recipe" data-day="${day}" aria-label="Essen ändern">${ic('pencil')}</button>` : ''}
