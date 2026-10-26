@@ -164,19 +164,25 @@ export async function loadAll() {
       return q;
     })
   );
-  const data = { missing: [] };
+  const data = { missing: [], failed: [] };
   results.forEach((res, i) => {
     const t = TABLES[i];
     if (res.error) {
       // Tabelle fehlt → Datenbank-Update noch nicht ausgeführt. Rest der App läuft weiter.
       const notFound = res.error.code === '42P01' || res.error.code === 'PGRST205' || res.status === 404;
-      if (!notFound) throw res.error;
-      data.missing.push(t);
+      if (notFound) data.missing.push(t);
+      // Sonst (Netz, Anmeldung): diese Tabelle als fehlgeschlagen melden, die App behält die alten Daten
+      else data.failed.push({ table: t, message: res.error.message || String(res.error.code || res.status) });
       data[t] = [];
     } else {
       data[t] = res.data;
     }
   });
+  if (data.failed.length === TABLES.length) {
+    const err = new Error(data.failed[0].message);
+    err.failed = data.failed;
+    throw err;
+  }
   return data;
 }
 

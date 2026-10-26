@@ -451,15 +451,49 @@ async function del(table, id) {
   }
 }
 
+// Daten neu laden. Läuft schon ein Laden, wird danach genau einmal nachgeladen.
+// Fehler (z. B. Netz beim Aufwachen noch weg) werden still wiederholt; Meldung erst, wenn es dauerhaft nicht klappt.
+const loading = { running: null, again: false };
 async function reload() {
-  try {
-    state.data = await store.loadAll();
-  } catch (e) {
-    console.error(e);
-    toast('Daten konnten nicht geladen werden.');
-    return;
+  if (loading.running) {
+    loading.again = true;
+    return loading.running;
   }
-  render();
+  loading.running = (async () => {
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, attempt * 2000));
+      try {
+        const data = await store.loadAll();
+        // Einzelne Tabellen nicht geladen: alte Daten behalten
+        for (const f of data.failed || []) data[f.table] = state.data?.[f.table] || [];
+        state.data = data;
+        if (data.failed?.length && attempt < 2) {
+          lastErr = new Error(data.failed.map((f) => `${f.table}: ${f.message}`).join('; '));
+          continue;
+        }
+        lastErr = data.failed?.length ? new Error(data.failed.map((f) => `${f.table}: ${f.message}`).join('; ')) : null;
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (lastErr) {
+      console.error(lastErr);
+      if (navigator.onLine === false) toast('Offline – es werden die zuletzt geladenen Daten angezeigt.');
+      else toast(`Daten konnten nicht geladen werden (${String(lastErr.message || lastErr).slice(0, 80)}).`);
+    }
+    if (state.data) render();
+  })();
+  try {
+    await loading.running;
+  } finally {
+    loading.running = null;
+    if (loading.again) {
+      loading.again = false;
+      reload();
+    }
+  }
 }
 
 /* ================= Termine ================= */
@@ -3527,7 +3561,9 @@ function render() {
     return;
   }
   if (!state.data) {
-    app.innerHTML = '<div class="boot">Lädt …</div>';
+    app.innerHTML = state.loadError
+      ? `<div class="boot"><p>Daten konnten nicht geladen werden.</p><p class="muted small">Bitte Internetverbindung prüfen.</p><button class="btn primary" data-action="retry-load">Nochmal versuchen</button></div>`
+      : '<div class="boot">Lädt …</div>';
     return;
   }
   if (!meMember() && members().length) {
@@ -4631,6 +4667,11 @@ const actions = {
     removeWithUndo('tasks', old.map((t) => t.id), `${old.length} Müll-Erinnerungen übernommen`);
   },
   activities: () => openActivities(),
+  'retry-load': () => {
+    state.loadError = false;
+    render();
+    startData();
+  },
   'act-filter': (d) => {
     const f = { mine: false, own: false, ...state.actFilter };
     if (d.k === 'all') f.mine = false;
@@ -5370,14 +5411,23 @@ async function seedCatalogs() {
 }
 
 async function startData() {
-  state.data = await store.loadAll();
-  try {
-    await seedIfEmpty();
-  } catch (e) {
-    console.error(e);
-    toast('Startdaten konnten nicht angelegt werden.');
+  await reload();
+  if (!state.data) {
+    state.loadError = true; // nichts geladen (z. B. kein Netz): Hinweis mit "Nochmal versuchen"
+    render();
+    return;
   }
-  seedCatalogs();
+  state.loadError = false;
+  // Nur wenn wirklich alles geladen wurde: sonst würden fehlende Tabellen für "leer" gehalten
+  if (!state.data.failed?.length) {
+    try {
+      await seedIfEmpty();
+    } catch (e) {
+      console.error(e);
+      toast('Startdaten konnten nicht angelegt werden.');
+    }
+    seedCatalogs();
+  }
   refreshSchoolHolidays(state.land).then((changed) => changed && render());
   startLive();
   render();
