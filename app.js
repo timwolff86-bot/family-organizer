@@ -1231,6 +1231,13 @@ function listDay(day) {
             sort: D.hm(x.t.due_time) || '',
             html: lrow(x.t.due_time ? D.hm(x.t.due_time) : '', `${ic('bell')}${esc(x.t.title)}`, peopleOf(x.t), `rem ${x.done ? 'off' : ''}`),
           })),
+          // Abfallkalender: am Vortag "rausstellen" zur eingestellten Uhrzeit
+          ...[wasteFlowItem(day)].filter(Boolean).filter((w) => listPersonOk(wasteSettings().people || [])).map((w) => ({
+            off: false,
+            rem: true,
+            sort: w.sort,
+            html: lrow(esc(w.sort), `${binsIcons(w.p.bins)}${esc(binsText(w.p.bins))} rausstellen`, wasteSettings().people || [], `rem ${w.p.put_out_at ? 'off' : ''}`),
+          })),
         ]
           .sort((a, b) => a.off - b.off || a.sort.localeCompare(b.sort) || !!a.rem - !!b.rem)
           .map((r) => r.html)
@@ -1391,6 +1398,7 @@ function monthAgenda(day) {
     ferien ? `<div class="ag-note">🏖️ ${esc(ferien.name)}</div>` : '',
     ...birthdaysOn(day).map((b) => `<button class="ag-note bd-note" data-action="edit-birthday" data-id="${b.id}">${birthdayHtml(b, day)}</button>`),
     pickupOn(day) ? `<button class="ag-note waste-note" data-action="tab" data-tab="abfall">${binsIcons(pickupOn(day).bins)}${esc(binsText(pickupOn(day).bins))}</button>` : '',
+    wasteFlowItem(day) ? `<button class="ag-note waste-note" data-action="tab" data-tab="abfall">${binsIcons(wasteFlowItem(day).p.bins)}${esc(wasteFlowItem(day).sort)} ${esc(binsText(wasteFlowItem(day).p.bins))} rausstellen</button>` : '',
   ].join('');
   const items = [...reminders, ...tasks];
   const empty = !events.length && !items.length && !meal?.text && !notes;
