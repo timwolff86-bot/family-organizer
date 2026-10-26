@@ -927,18 +927,7 @@ function viewHeute() {
     ${flowList(day)}
 
     <section>
-      <div class="section-head">
-        <h2>Essen</h2>
-        ${
-          r
-            ? `<span class="head-links">
-                <button class="link" data-action="open-recipe" data-id="${meal.recipe_id}">Rezept</button>
-                <button class="link" data-action="ingredients" data-ids="${meal.recipe_id}">Zutaten</button>
-                <button class="link" data-action="pick-recipe" data-day="${day}">Ändern</button>
-              </span>`
-            : ''
-        }
-      </div>
+      <h2>Essen</h2>
       ${mealField(meal, day, `Was gibt es ${isToday ? 'heute' : 'an diesem Tag'}?`, 'done', 'card meal')}
     </section>
 
@@ -1487,17 +1476,16 @@ const mealIcon = (meal) => {
 const recipeEmoji = (r) => r?.emoji || recipeCategory(r?.category).emoji;
 
 // Eingabefeld fürs Essen + Knopf "aus dem Kochbuch wählen"
+// Essen eines Tages: Antippen öffnet das Rezept (oder die Auswahl), Stift = ändern
 function mealField(meal, day, placeholder, enter, cls) {
   const r = mealRecipe(meal);
   return `
-    <div class="${cls}">
-      <span class="meal-icon ${r || mealSpecial(meal) ? '' : 'empty'}">${mealIcon(meal)}</span>
-      <div class="meal-field ${meal?.text ? 'has-text' : ''}">
-        <span class="meal-text" aria-hidden="true">${esc(meal?.text || '')}</span>
-        <input class="meal-input" ${cls.includes('card') ? 'id="meal-input"' : ''} data-day="${day}" list="recipe-list"
-          value="${esc(meal?.text || '')}" placeholder="${esc(placeholder)}" enterkeyhint="${enter}" autocomplete="off" />
-      </div>
-      ${r && cls.includes('card') ? '' : `<button class="icon-btn book" data-action="pick-recipe" data-day="${day}" aria-label="Aus dem Kochbuch wählen">${ic('kochbuch')}</button>`}
+    <div class="${cls} meal-row">
+      <button class="meal-open" data-action="${r ? 'open-recipe' : 'pick-recipe'}" data-id="${r?.id || ''}" data-day="${day}">
+        <span class="meal-icon ${r || mealSpecial(meal) ? '' : 'empty'}">${mealIcon(meal)}</span>
+        <span class="meal-name ${meal?.text ? '' : 'muted'}">${esc(meal?.text || placeholder)}</span>
+      </button>
+      ${meal?.text ? `<button class="icon-btn meal-edit" data-action="pick-recipe" data-day="${day}" aria-label="Essen ändern">${ic('pencil')}</button>` : ''}
     </div>`;
 }
 
@@ -1665,6 +1653,12 @@ function ingredientsPanel(ids) {
   );
 }
 
+// Freitext des Tages (nicht bei Rezept, Reste, Auswärts) – zum Weiterbearbeiten
+function ownMealText(day) {
+  const m = state.data.meals.find((x) => x.date === day);
+  return m?.text && !m.recipe_id && !mealSpecial(m) ? m.text : '';
+}
+
 function recipePicker(day) {
   openPanel(
     `Essen am ${D.formatShort(day)}`,
@@ -1675,6 +1669,10 @@ function recipePicker(day) {
           <span class="ms-emoji">${x.emoji}</span><span class="ms-text"><b>${x.text}</b><span class="muted small">${x.hint}</span></span></button>`
       ).join('')}
     </div>
+    <form class="card add-item meal-own" data-form="meal-text" data-day="${day}">
+      <input name="text" value="${esc(ownMealText(day))}" placeholder="Eigener Eintrag, z. B. Pizza" autocomplete="off" enterkeyhint="done" />
+      <button class="btn primary" type="submit" aria-label="Übernehmen">${ic('check')}</button>
+    </form>
     <h3 class="sr-head">Oder ein Gericht</h3>
     <input type="search" id="recipe-search" placeholder="Gericht suchen …" autocomplete="off" />
     <ul class="card list recipes" id="recipe-list-ul">
@@ -5126,6 +5124,16 @@ document.addEventListener('submit', async (e) => {
     input.blur(); // sonst wird die Liste nicht neu gezeichnet
     addItem(name); // zeichnet sofort neu
     $('#main form.add-item input[name="name"]')?.focus();
+  }
+
+  if (kind === 'meal-text') {
+    const text = (f.get('text') || '').trim();
+    const day = form.dataset.day;
+    if (!text) return;
+    // Passt der Text genau zu einem Gericht im Kochbuch, wird es verknüpft
+    const recipe = state.data.recipes.find((r) => r.title.toLowerCase() === text.toLowerCase());
+    save('meals', { date: day, text: recipe ? recipe.title : text, recipe_id: recipe?.id || null }, 'date');
+    closeSheet();
   }
 
   if (kind === 'note-add') {

@@ -4976,3 +4976,40 @@ details[open] > summary .sum-ic {
 .frow.off .fr-sub {
   color: var(--muted);
 }
+
+/* Essen: antippbare Zeile statt Eingabefeld */
+.meal-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.meal-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  color: inherit;
+  min-height: 44px;
+}
+.card.meal .meal-open {
+  padding: 8px 0;
+}
+.meal-name {
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meal-edit .ic {
+  width: 17px;
+  height: 17px;
+  color: var(--muted);
+}
+.week-meal .meal-open {
+  min-height: 40px;
+}
+.meal-own {
+  margin: 4px 0 6px;
+}
