@@ -4955,3 +4955,20 @@ details[open] > summary .sum-ic {
 .act-filter {
   margin-top: 0;
 }
+/* Verspätet erledigt */
+.tag.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.tag.soft {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.plist .fr-sub .warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.done .tag.warn,
+.done .tag.soft {
+  text-decoration: none;
+}

@@ -672,7 +672,13 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
     if (isRecurring(t)) {
       if (occursOn(t, day)) {
         const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
-        out.push({ t, day, done: !!c, recurring: true });
+        const on = c?.created_at ? D.toKey(new Date(c.created_at)) : null;
+        out.push({ t, day, done: !!c, recurring: true, doneOn: on && on > day ? on : null });
+      }
+      // An diesem Tag verspätet abgehakt (für einen früheren Termin): hier auch zeigen
+      for (const c of state.data.task_completions) {
+        if (c.task_id !== t.id || !c.created_at || c.date >= day || D.toKey(new Date(c.created_at)) !== day) continue;
+        out.push({ t, day: c.date, done: true, recurring: true, lateBy: daysBetween(c.date, day) });
       }
       // Heute zusätzlich: zuletzt verpasster Termin dieser Aufgabe (bis zu 7 Tage zurück)
       if (day === today && kind === 'aufgabe') {
@@ -683,8 +689,11 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
     }
     const stillVisible = !t.done_at || doneKey(t) === today;
     if (t.due_date) {
-      if (t.due_date === day) out.push({ t, day, done: !!t.done_at });
-      else if (day === today && t.due_date < today && stillVisible) out.push({ t, day, done: !!t.done_at, overdue: true });
+      const on = doneKey(t);
+      if (t.due_date === day) out.push({ t, day, done: !!t.done_at, doneOn: on && on > day ? on : null });
+      // Verspätet erledigt: am Tag des Abhakens weiter zeigen
+      else if (t.done_at && on === day && t.due_date < day) out.push({ t, day, done: true, lateBy: daysBetween(t.due_date, day) });
+      else if (day === today && t.due_date < today && !t.done_at) out.push({ t, day, done: false, overdue: true });
     } else if (day === today && stillVisible) {
       out.push({ t, day, done: !!t.done_at, undated: true });
     }
@@ -736,6 +745,14 @@ function isLate(x) {
 }
 
 // stack: Personen als kleine Fotos rechts (Heute) statt als Namens-Etiketten
+// "1 Tag verspätet" / "3 Tage verspätet"; "gestern erledigt" / "am Mi erledigt" / "am 3.11. erledigt"
+const lateText = (n) => `${n} ${n === 1 ? 'Tag' : 'Tage'} verspätet`;
+// from: der ursprüngliche Tag – "am Di erledigt", bei mehr als einer Woche mit Datum
+function doneOnText(k, from) {
+  const wd = D.WD_SHORT[D.isoWeekday(k) - 1];
+  return daysBetween(from, k) < 7 ? `am ${wd} erledigt` : `am ${wd} ${D.fromKey(k).getDate()}.${D.fromKey(k).getMonth() + 1}. erledigt`;
+}
+
 function taskRow(x, { stack = false } = {}) {
   const { t } = x;
   const by = x.done && t.done_by && member(t.done_by);
@@ -748,7 +765,11 @@ function taskRow(x, { stack = false } = {}) {
         ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
         : x.missedDay && !x.done
           ? `<span class="tag red">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
-          : '',
+          : x.lateBy
+            ? `<span class="tag warn">${lateText(x.lateBy)}</span>`
+            : x.doneOn
+              ? `<span class="tag soft">${esc(doneOnText(x.doneOn, x.day))}</span>`
+              : '',
     x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : '',
   ].join('');
   return `
@@ -1036,7 +1057,11 @@ function personRow(day, first, it, id) {
         ? `<span class="red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
         : x.missedDay && !x.done
           ? `<span class="red">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
-          : '',
+          : x.lateBy
+            ? `<span class="warn">${lateText(x.lateBy)}</span>`
+            : x.doneOn
+              ? esc(doneOnText(x.doneOn, x.day))
+              : '',
     esc(others(peopleOf(t))),
   ].filter(Boolean);
   return `<div class="frow prow ${first ? 'first' : ''} ${x.done ? 'done' : ''}">
