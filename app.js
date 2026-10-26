@@ -1390,6 +1390,7 @@ function monthAgenda(day) {
     holiday ? `<div class="ag-note">🎉 ${esc(holiday.name)}</div>` : '',
     ferien ? `<div class="ag-note">🏖️ ${esc(ferien.name)}</div>` : '',
     ...birthdaysOn(day).map((b) => `<button class="ag-note bd-note" data-action="edit-birthday" data-id="${b.id}">${birthdayHtml(b, day)}</button>`),
+    pickupOn(day) ? `<button class="ag-note waste-note" data-action="tab" data-tab="abfall">${binsIcons(pickupOn(day).bins)}${esc(binsText(pickupOn(day).bins))}</button>` : '',
   ].join('');
   const items = [...reminders, ...tasks];
   const empty = !events.length && !items.length && !meal?.text && !notes;

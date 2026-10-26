@@ -4855,3 +4855,12 @@ details[open] > summary .sum-ic {
   justify-content: flex-start;
   gap: 10px;
 }
+.ag-note.waste-note {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  color: var(--text);
+}
+.ag-note.waste-note .bins {
+  margin-right: 8px;
+}
