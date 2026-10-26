@@ -4870,3 +4870,88 @@ details[open] > summary .sum-ic {
 .task .title .bins {
   margin: 0 0 0 6px;
 }
+
+/* ===== Neuigkeiten ===== */
+.bell-btn {
+  position: relative;
+}
+.bell-badge {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.act-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.act-day {
+  padding: 12px 14px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.act-day:first-child {
+  border-top: 0;
+}
+.act-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  color: inherit;
+}
+.act-row .av {
+  flex: none;
+  margin-top: 1px;
+}
+.act-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.act-text {
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.act-detail {
+  overflow-wrap: anywhere;
+}
+.act-time {
+  flex: none;
+  padding-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.act.new .act-row {
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+}
+.act.new .act-time {
+  color: var(--accent);
+  font-weight: 700;
+}
+.act.gone .act-text b + b,
+.act.gone .act-text b:last-of-type {
+  text-decoration: line-through;
+}
+.act-filter {
+  margin-top: 0;
+}

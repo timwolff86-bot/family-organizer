@@ -20,6 +20,7 @@ export const TABLES = [
   'notes',
   'waste_pickups',
   'app_settings',
+  'activities',
 ];
 
 // Tabellen mit vielen Einträgen pro Tag: nur die letzten 60 Tage + Zukunft laden.
@@ -144,6 +145,8 @@ export async function loadAll() {
     TABLES.map((t) => {
       let q = sb.from(t).select('*').range(0, 4999);
       if (DATED.includes(t)) q = q.gte('date', since);
+      // Neuigkeiten: nur die letzten 30 Tage, neueste zuerst
+      if (t === 'activities') q = q.gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('created_at', { ascending: false }).range(0, 999);
       return q;
     })
   );

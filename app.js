@@ -281,7 +281,7 @@ function confirmToast(head, lines, onEdit) {
   arm(CONFIRM_MS);
 }
 
-const namesOf = (ids) => ids.map((id) => member(id)?.name).filter(Boolean).join(', ');
+const namesOf = (ids) => (ids || []).map((id) => member(id)?.name).filter(Boolean).join(", ");
 const timeRange = (a, b) => (D.hm(a) ? `${D.hm(a)}${D.hm(b) ? `–${D.hm(b)}` : ''} Uhr` : '');
 
 // Zusammenfassung je Art: [Kopf, Hauptzeile, Zusatzzeile], dazu "Bearbeiten"
@@ -363,6 +363,7 @@ async function removeWithUndo(table, ids, label) {
   if (table === 'recipes') snapshot.push(['meals', state.data.meals.filter((m) => ids.includes(m.recipe_id))]);
   const copy = snapshot.map(([t, rows]) => [t, rows.map((r) => ({ ...r }))]);
 
+  const logged = copy[0][1].map((r) => logChange(table, r, null)).filter(Boolean);
   state.data[table] = state.data[table].filter((r) => !ids.includes(r.id) && !(table === 'events' && ids.includes(r.series_id)));
   render();
   const removal = (async () => {
@@ -374,6 +375,7 @@ async function removeWithUndo(table, ids, label) {
       try {
         await removal.catch(() => {}); // erst fertig löschen, dann wiederherstellen
         for (const [t, rows] of copy) if (rows.length) await store.upsertMany(t, rows, t === 'meals' ? 'date' : 'id');
+        for (const id of logged) await store.remove('activities', id).catch(() => {}); // "gelöscht" zurücknehmen
       } catch (e) {
         console.error(e);
         toast('Wiederherstellen hat nicht geklappt.');
@@ -418,6 +420,7 @@ async function save(table, row, conflict = 'id', { quiet = false } = {}) {
   const cols = conflict.split(',');
   if (!row.id && conflict === 'id') row.id = store.uuid();
   const i = list.findIndex((r) => cols.every((c) => r[c] === row[c]));
+  const before = i >= 0 ? { ...list[i] } : null;
   if (i >= 0) {
     row = { ...list[i], ...row, id: list[i].id };
     list[i] = row;
@@ -425,6 +428,7 @@ async function save(table, row, conflict = 'id', { quiet = false } = {}) {
     row = { id: store.uuid(), created_at: new Date().toISOString(), ...row };
     list.push(row);
   }
+  logChange(table, before, row);
   if (quiet) setTimeout(render, 0); // render() wartet selbst, solange jemand tippt
   else render();
   try {
@@ -436,6 +440,7 @@ async function save(table, row, conflict = 'id', { quiet = false } = {}) {
 }
 
 async function del(table, id) {
+  logChange(table, state.data[table].find((r) => r.id === id), null);
   state.data[table] = state.data[table].filter((r) => r.id !== id);
   render();
   try {
@@ -2304,6 +2309,283 @@ function viewMehr() {
     </section>`;
 }
 
+/* ================= Neuigkeiten (Aktivitäten) ================= */
+
+const activitiesReady = () => state.data && !state.data.missing?.includes('activities');
+const shortDay = (k) => (k ? `${D.WD_SHORT[D.isoWeekday(k) - 1]} ${D.fromKey(k).getDate()}.${D.fromKey(k).getMonth() + 1}.` : '');
+
+// Was hat sich an einem Termin geändert? → "17:30 → 18:00 · Ort: Dr. Meier"
+function eventDiff(a, b) {
+  const out = [];
+  if (a.title !== b.title) out.push(`neuer Name (vorher „${a.title}“)`);
+  if ((a.date || '') !== (b.date || '') && b.date) out.push(`${shortDay(a.date)} → ${shortDay(b.date)}`);
+  if ((a.end_date || '') !== (b.end_date || '') && b.end_date) out.push(`bis ${shortDay(b.end_date)}`);
+  if ((a.weekdays || []).join() !== (b.weekdays || []).join() && b.weekdays?.length) out.push(everyText(b.weekdays));
+  const t = (x) => [D.hm(x.start_time), D.hm(x.end_time)].filter(Boolean).join('–') || 'ganztägig';
+  if (t(a) !== t(b)) out.push(`${t(a)} → ${t(b)}`);
+  if ((a.location || '') !== (b.location || '')) out.push(b.location ? `Ort: ${b.location}` : 'ohne Ort');
+  const pa = eventPeople(a), pb = eventPeople(b);
+  const added = pb.filter((x) => !pa.includes(x)), removed = pa.filter((x) => !pb.includes(x));
+  if (added.length) out.push(`jetzt mit ${namesOf(added)}`);
+  if (removed.length) out.push(`ohne ${namesOf(removed)}`);
+  if ((a.notes || '') !== (b.notes || '')) out.push('Notiz geändert');
+  return out.join(' · ');
+}
+function taskDiff(a, b) {
+  const out = [];
+  if (a.title !== b.title) out.push(`neuer Name (vorher „${a.title}“)`);
+  if ((a.due_date || '') !== (b.due_date || '')) out.push(b.due_date ? `jetzt ${shortDay(b.due_date)}` : 'ohne Datum');
+  if ((D.hm(a.due_time) || '') !== (D.hm(b.due_time) || '')) out.push(b.due_time ? `${D.hm(a.due_time) || '–'} → ${D.hm(b.due_time)}` : 'ohne Uhrzeit');
+  const pa = peopleOf(a), pb = peopleOf(b);
+  const added = pb.filter((x) => !pa.includes(x)), removed = pa.filter((x) => !pb.includes(x));
+  if (added.length) out.push(`jetzt für ${namesOf(added)}`);
+  if (removed.length) out.push(`nicht mehr für ${namesOf(removed)}`);
+  if (rhythmText(a) !== rhythmText(b)) out.push(rhythmText(b) || 'nicht mehr wiederkehrend');
+  return out.join(' · ');
+}
+const eventWhen = (e) =>
+  [e.weekdays?.length ? everyText(e.weekdays) : e.end_date && e.end_date > e.date ? `${shortDay(e.date)} – ${shortDay(e.end_date)}` : shortDay(e.date), D.hm(e.start_time)].filter(Boolean).join(' · ');
+const taskWhen = (t) => [isRecurring(t) ? rhythmText(t) : t.due_date ? shortDay(t.due_date) : '', D.hm(t.due_time), peopleOf(t).length ? `für ${namesOf(peopleOf(t))}` : ''].filter(Boolean).join(' · ');
+
+// Aus einer Änderung (vorher → nachher) eine Neuigkeit machen; null = nicht erwähnenswert
+function describeChange(table, a, b) {
+  const row = b || a;
+  if (!row) return null;
+  const base = { entity_id: row.id, people: [], private: false };
+  switch (table) {
+    case 'events': {
+      if (row.series_id) return b ? { ...base, entity: 'event', action: 'update', title: row.title, detail: `nur am ${shortDay(row.series_date)}${a ? ` · ${eventDiff(a, b)}` : ''}`, people: eventPeople(row) } : null;
+      if (!a) return { ...base, entity: 'event', action: 'create', title: b.title, detail: eventWhen(b), people: eventPeople(b) };
+      if (!b) return { ...base, entity: 'event', action: 'delete', title: a.title, detail: eventWhen(a), people: eventPeople(a) };
+      const d = eventDiff(a, b);
+      return d ? { ...base, entity: 'event', action: 'update', title: b.title, detail: d, people: eventPeople(b) } : null;
+    }
+    case 'event_occurrences': {
+      const ev = state.data.events.find((e) => e.id === row.event_id);
+      if (!ev || !b || !!a?.cancelled === !!b.cancelled) return null;
+      return { ...base, entity: 'event', entity_id: ev.id, action: b.cancelled ? 'cancel' : 'uncancel', title: ev.title, detail: shortDay(b.date), people: eventPeople(ev) };
+    }
+    case 'tasks': {
+      const entity = isReminder(row) ? 'reminder' : 'task';
+      const priv = isReminder(row) && peopleOf(row).length > 0;
+      const t = { ...base, entity, people: peopleOf(row), private: priv, title: row.title };
+      if (!a) return { ...t, action: 'create', detail: taskWhen(b) };
+      if (!b) return { ...t, action: 'delete', detail: '' };
+      if (!a.done_at && b.done_at) return { ...t, action: 'done', detail: '' };
+      if (a.done_at && !b.done_at) return null;
+      const d = taskDiff(a, b);
+      return d ? { ...t, action: 'update', detail: d } : null;
+    }
+    case 'task_completions': {
+      const t = state.data.tasks.find((x) => x.id === row.task_id);
+      if (!t || a || !b) return null; // nur Abhaken, nicht das Zurücknehmen
+      return { ...base, entity: isReminder(t) ? 'reminder' : 'task', entity_id: t.id, action: 'done', title: t.title, detail: b.date !== D.todayKey() ? `für ${shortDay(b.date)}` : '', people: peopleOf(t), private: isReminder(t) && peopleOf(t).length > 0 };
+    }
+    case 'shopping_items':
+      if (!a && b) return { ...base, entity: 'shop', action: 'add', title: b.name };
+      if (a && b && !a.done && b.done) return { ...base, entity: 'shop', action: 'bought', title: b.name };
+      return null;
+    case 'meals':
+      if (!b?.text || a?.text === b.text) return null;
+      return { ...base, entity: 'meal', entity_id: b.date, action: 'plan', title: b.text, detail: shortDay(b.date) };
+    case 'recipes':
+      return !a && b ? { ...base, entity: 'recipe', action: 'create', title: b.title } : null;
+    case 'notes':
+      if (!a) return { ...base, entity: 'note', action: 'create', title: b.title };
+      if (!b) return { ...base, entity: 'note', action: 'delete', title: a.title };
+      return { ...base, entity: 'note', action: 'update', title: b.title };
+    case 'birthdays':
+      if (!a) return { ...base, entity: 'birthday', action: 'create', title: b.name, detail: `${b.day}. ${MONTHS[b.month - 1]}` };
+      if (!b) return { ...base, entity: 'birthday', action: 'delete', title: a.name };
+      return null;
+    case 'members':
+      return !a && b ? { ...base, entity: 'member', action: 'create', title: b.name } : null;
+    case 'waste_pickups':
+      return a && b && !a.put_out_at && b.put_out_at ? { ...base, entity: 'waste', action: 'out', title: binsText(b.bins) } : null;
+    default:
+      return null;
+  }
+}
+
+function logChange(table, a, b) {
+  if (!activitiesReady() || table === 'activities') return null;
+  let act;
+  try {
+    act = describeChange(table, a, b);
+  } catch (e) {
+    console.warn('Neuigkeit nicht erstellt', e);
+    return null;
+  }
+  if (!act) return null;
+  // Mehrfaches Bearbeiten derselben Sache kurz hintereinander: nur einmal
+  const last = (state.data.activities || [])[0];
+  if (
+    act.action === 'update' &&
+    last &&
+    last.actor === (state.me || null) &&
+    last.entity_id === act.entity_id &&
+    last.action === 'update' &&
+    Date.now() - new Date(last.created_at) < 10 * 60000
+  )
+    return null;
+  const row = { id: store.uuid(), actor: state.me || null, created_at: new Date().toISOString(), ...act };
+  state.data.activities = [row, ...(state.data.activities || [])].slice(0, 1000);
+  store.upsert('activities', row, 'id').catch((e) => console.warn('Neuigkeit nicht gespeichert', e));
+  return row.id;
+}
+
+// Wer darf die Neuigkeit sehen? Private Erinnerungen nur Betroffene und wer sie angelegt hat
+const canSeeActivity = (x) => !x.private || !state.me || x.actor === state.me || (x.people || []).includes(state.me);
+const SEEN_KEY = 'fo-act-seen';
+function activitySeen() {
+  const v = lsGet(SEEN_KEY);
+  if (v) return v;
+  const now = new Date().toISOString(); // erstes Mal: nichts Altes als "neu" zählen
+  lsSet(SEEN_KEY, now);
+  return now;
+}
+function unseenCount() {
+  if (!activitiesReady()) return 0;
+  const seen = activitySeen();
+  const fresh = (state.data.activities || [])
+    .filter((x) => x.created_at > seen && x.actor !== state.me && canSeeActivity(x))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return bundled(fresh).length; // wie in der Liste: Gebündeltes zählt einmal
+}
+const bellButton = () => {
+  if (!activitiesReady()) return '';
+  const n = unseenCount();
+  return `<button class="icon-btn bell-btn" data-action="activities" aria-label="Neuigkeiten${n ? ` (${n} neu)` : ''}">${ic('bell')}${n ? `<span class="bell-badge">${n > 9 ? '9+' : n}</span>` : ''}</button>`;
+};
+
+// Gleiche Aktionen derselben Person kurz hintereinander zu einer Zeile bündeln
+const BUNDLE = new Set(['shop:add', 'shop:bought', 'note:update']);
+function bundled(list) {
+  const out = [];
+  for (const x of list) {
+    const last = out[out.length - 1];
+    const key = `${x.entity}:${x.action}`;
+    if (
+      last &&
+      BUNDLE.has(key) &&
+      last.key === key &&
+      last.actor === x.actor &&
+      (key !== 'note:update' || last.items[0].entity_id === x.entity_id) &&
+      new Date(last.items[last.items.length - 1].created_at) - new Date(x.created_at) < 20 * 60000
+    ) {
+      last.items.push(x);
+      continue;
+    }
+    out.push({ key, actor: x.actor, items: [x] });
+  }
+  return out;
+}
+
+function activityText(g) {
+  const x = g.items[0];
+  const n = g.items.length;
+  const b = (t) => `<b>${esc(t)}</b>`;
+  const kind = { task: 'die Aufgabe', reminder: 'die Erinnerung' }[x.entity];
+  switch (`${x.entity}:${x.action}`) {
+    case 'event:create': return `hat den Termin ${b(x.title)} angelegt`;
+    case 'event:update': return `hat ${b(x.title)} geändert`;
+    case 'event:delete': return `hat den Termin ${b(x.title)} gelöscht`;
+    case 'event:cancel': return `hat ${b(x.title)} abgesagt`;
+    case 'event:uncancel': return `hat ${b(x.title)} wieder eingeplant`;
+    case 'task:create': case 'reminder:create': return `hat ${kind} ${b(x.title)} angelegt`;
+    case 'task:update': case 'reminder:update': return `hat ${b(x.title)} geändert`;
+    case 'task:delete': case 'reminder:delete': return `hat ${kind} ${b(x.title)} gelöscht`;
+    case 'task:done': case 'reminder:done': return `hat ${b(x.title)} erledigt ✓`;
+    case 'shop:add': return n > 1 ? `hat ${n} Artikel auf die Einkaufsliste gesetzt` : `hat ${b(x.title)} auf die Einkaufsliste gesetzt`;
+    case 'shop:bought': return n > 1 ? `hat eingekauft: ${n} Artikel` : `hat ${b(x.title)} eingekauft`;
+    case 'meal:plan': return `hat ${b(x.title)} eingeplant`;
+    case 'recipe:create': return `hat ein neues Rezept angelegt: ${b(x.title)}`;
+    case 'note:create': return `hat die Notiz ${b(x.title)} angelegt`;
+    case 'note:update': return `hat die Notiz ${b(x.title)} bearbeitet`;
+    case 'note:delete': return `hat die Notiz ${b(x.title)} gelöscht`;
+    case 'birthday:create': return `hat den Geburtstag von ${b(x.title)} eingetragen`;
+    case 'birthday:delete': return `hat den Geburtstag von ${b(x.title)} gelöscht`;
+    case 'member:create': return `hat ${b(x.title)} zur Familie hinzugefügt`;
+    case 'waste:out': return `hat ${b(x.title)} rausgestellt`;
+    default: return `hat ${b(x.title || 'etwas')} geändert`;
+  }
+}
+function activityDetail(g) {
+  const x = g.items[0];
+  if (g.items.length > 1 && x.entity === 'shop') {
+    const names = g.items.map((i) => i.title).reverse(); // in der Reihenfolge, wie sie eingetragen wurden
+    return names.slice(0, 5).join(', ') + (names.length > 5 ? ` und ${names.length - 5} weitere` : '');
+  }
+  return x.detail || '';
+}
+function timeAgo(iso) {
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return `vor ${min} Min.`;
+  const d = new Date(iso);
+  return `${D.pad(d.getHours())}:${D.pad(d.getMinutes())}`;
+}
+
+// Antippen: das Ding öffnen, falls es noch da ist
+function activityTarget(x) {
+  const id = x.entity_id;
+  if (x.action === 'delete') return '';
+  if (x.entity === 'event' && state.data.events.some((e) => e.id === id)) return `data-action="act-open" data-kind="event" data-id="${id}"`;
+  if ((x.entity === 'task' || x.entity === 'reminder') && state.data.tasks.some((t) => t.id === id)) return `data-action="act-open" data-kind="task" data-id="${id}"`;
+  if (x.entity === 'recipe' && state.data.recipes.some((r) => r.id === id)) return `data-action="act-open" data-kind="recipe" data-id="${id}"`;
+  if (x.entity === 'note' && (state.data.notes || []).some((n) => n.id === id)) return `data-action="act-open" data-kind="note" data-id="${id}"`;
+  if (x.entity === 'birthday' && state.data.birthdays.some((b) => b.id === id)) return `data-action="act-open" data-kind="birthday" data-id="${id}"`;
+  if (x.entity === 'shop') return 'data-action="act-open" data-kind="tab" data-id="einkauf"';
+  if (x.entity === 'waste') return 'data-action="act-open" data-kind="tab" data-id="abfall"';
+  if (x.entity === 'meal') return `data-action="act-open" data-kind="day" data-id="${esc(x.entity_id)}"`;
+  return '';
+}
+
+function activitiesHtml() {
+  const f = state.actFilter || { mine: false, own: false };
+  const seen = state.actSeenBefore || activitySeen();
+  const list = (state.data.activities || [])
+    .filter(canSeeActivity)
+    .filter((x) => f.own || x.actor !== state.me || !state.me)
+    .filter((x) => !f.mine || (x.people || []).includes(state.me))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const groups = bundled(list);
+  let day = '';
+  const rows = groups
+    .map((g) => {
+      const x = g.items[0];
+      const k = D.toKey(new Date(x.created_at));
+      const rel = D.relativeLabel(k);
+      const head = k !== day ? `<li class="act-day">${rel === 'Heute' || rel === 'Gestern' ? rel : D.formatLong(k)}</li>` : '';
+      day = k;
+      const who = member(x.actor);
+      const target = activityTarget(x);
+      const tag = target ? 'button' : 'div';
+      return `${head}<li class="act ${x.created_at > seen && x.actor !== state.me ? 'new' : ''} ${x.action === 'delete' ? 'gone' : ''}">
+        <${tag} class="act-row" ${target}>
+          ${who ? avatar(who, 'small') : '<span class="av av-initial small" style="--c:#999">?</span>'}
+          <span class="act-main"><span class="act-text"><b>${esc(who?.name || 'Jemand')}</b> ${activityText(g)}</span>
+            ${activityDetail(g) ? `<span class="muted small act-detail">${esc(activityDetail(g))}</span>` : ''}</span>
+          <span class="muted small act-time">${esc(timeAgo(g.items[g.items.length - 1].created_at === x.created_at ? x.created_at : x.created_at))}</span>
+        </${tag}></li>`;
+    })
+    .join('');
+  return `
+    <div class="chip-row act-filter">
+      <button type="button" class="filter-chip ${f.mine ? '' : 'on'}" data-action="act-filter" data-k="all">Alle</button>
+      <button type="button" class="filter-chip ${f.mine ? 'on' : ''}" data-action="act-filter" data-k="mine">Betrifft mich</button>
+      <button type="button" class="filter-chip ${f.own ? 'on' : ''}" data-action="act-filter" data-k="own">Eigene anzeigen</button>
+    </div>
+    ${rows ? `<ul class="card act-list">${rows}</ul>` : `<p class="empty">${f.mine ? 'Nichts Neues, das dich betrifft.' : 'Noch nichts Neues von den anderen.'}</p>`}
+    <p class="muted small center">Neuigkeiten der letzten 30 Tage</p>`;
+}
+
+function openActivities() {
+  state.actSeenBefore = activitySeen(); // "neu" bleibt markiert, solange das Fenster offen ist
+  openPanel('Neuigkeiten', `<div id="act-body">${activitiesHtml()}</div>`);
+  lsSet(SEEN_KEY, new Date().toISOString());
+}
+
 /* ================= Abfallkalender ================= */
 
 // Tonnen: Vorgabe, von der Familie änderbar (app_settings 'waste_bins')
@@ -3075,6 +3357,7 @@ function header() {
           <span class="greet">${hello}${me ? `, ${esc(me.name)}` : ''}</span>
           <span class="head-actions">
             ${isToday ? '' : '<button class="pill" data-action="goto-today">Heute</button>'}
+            ${bellButton()}
             ${searchButton()}
           </span>
         </div>
@@ -3097,6 +3380,7 @@ function header() {
       `<button class="title-btn" data-action="cal-today" aria-label="Zu heute">${title}</button>`,
       `<button class="icon-btn" data-action="cal-step" data-dir="-1" aria-label="Zurück">${ic('left')}</button>
        <button class="icon-btn" data-action="cal-step" data-dir="1" aria-label="Weiter">${ic('right')}</button>
+       ${bellButton()}
        ${searchButton()}`,
       'cal-top',
       `<div class="seg wide cal-switch">
@@ -4321,6 +4605,35 @@ const actions = {
     const times = old.map((t) => D.hm(t.due_time)).filter(Boolean);
     saveWasteSettings({ on: true, ...(people.length ? { people } : {}), ...(times.length ? { time: times[0] } : {}) });
     removeWithUndo('tasks', old.map((t) => t.id), `${old.length} Müll-Erinnerungen übernommen`);
+  },
+  activities: () => openActivities(),
+  'act-filter': (d) => {
+    const f = { mine: false, own: false, ...state.actFilter };
+    if (d.k === 'all') f.mine = false;
+    if (d.k === 'mine') f.mine = true;
+    if (d.k === 'own') f.own = !f.own;
+    state.actFilter = f;
+    const box = $('#act-body');
+    if (box) box.innerHTML = activitiesHtml();
+  },
+  'act-open': (d) => {
+    closeSheet();
+    if (d.kind === 'event') {
+      const ev = state.data.events.find((e) => e.id === d.id);
+      return eventView(ev, ev?.weekdays?.length ? null : ev?.date || null);
+    }
+    if (d.kind === 'task') return actions['edit-task'](d);
+    if (d.kind === 'recipe') return actions['open-recipe'](d);
+    if (d.kind === 'note') return actions['open-note'](d);
+    if (d.kind === 'birthday') return actions['edit-birthday'](d);
+    if (d.kind === 'tab') return actions.tab({ tab: d.id });
+    if (d.kind === 'day') {
+      navPush();
+      state.view = 'heute';
+      state.date = d.id;
+      window.scrollTo(0, 0);
+      render();
+    }
   },
   'new-note': () => noteForm(null),
   'note-form': (d) => noteForm((state.data.notes || []).find((x) => x.id === d.id)),
