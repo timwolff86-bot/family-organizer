@@ -761,15 +761,15 @@ function taskRow(x, { stack = false } = {}) {
     isReminder(t) && state.view === 'person' ? `<span class="tag time">${ic('bell')}</span>` : '',
     t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">${ic('clock')}${D.hm(t.due_time)}</span>` : '',
     x.missed
-      ? `<span class="tag red">${esc(missedLabel(x.day))} nicht erledigt</span>`
+      ? `<span class="tag">${esc(missedLabel(x.day))} nicht erledigt</span>`
       : x.overdue
-        ? `<span class="tag red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
+        ? `<span class="tag">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
         : x.missedDay && !x.done
-          ? `<span class="tag red">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
+          ? `<span class="tag">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
           : x.lateBy
-            ? `<span class="tag warn">${lateText(x.lateBy)}</span>`
+            ? `<span class="tag">${lateText(x.lateBy)}</span>`
             : x.doneOn
-              ? `<span class="tag soft">${esc(doneOnText(x.doneOn, x.day))}</span>`
+              ? `<span class="tag">${esc(doneOnText(x.doneOn, x.day))}</span>`
               : '',
     x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : '',
   ].join('');
@@ -1053,13 +1053,13 @@ function personRow(day, first, it, id) {
     `${rem ? 'Erinnerung' : 'Aufgabe'}${x.recurring ? `<span class="rep">${ic('repeat')}</span>` : ''}`,
     t.due_time ? D.hm(t.due_time) : '',
     x.missed
-      ? `<span class="red">${esc(missedLabel(x.day))} nicht erledigt</span>`
+      ? `<span>${esc(missedLabel(x.day))} nicht erledigt</span>`
       : x.overdue
-        ? `<span class="red">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
+        ? `<span>seit ${esc(D.formatDayMonth(t.due_date))}</span>`
         : x.missedDay && !x.done
-          ? `<span class="red">${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
+          ? `<span>${esc(missedLabel(x.missedDay))} nicht erledigt</span>`
           : x.lateBy
-            ? `<span class="warn">${lateText(x.lateBy)}</span>`
+            ? `<span>${lateText(x.lateBy)}</span>`
             : x.doneOn
               ? esc(doneOnText(x.doneOn, x.day))
               : '',

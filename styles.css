@@ -4972,3 +4972,7 @@ details[open] > summary .sum-ic {
 .done .tag.soft {
   text-decoration: none;
 }
+/* Hinweise ruhig statt rot: "Fällt aus", "nicht erledigt", "seit …", "verspätet" */
+.frow.off .fr-sub {
+  color: var(--muted);
+}
