@@ -1,3 +1,4 @@
+-- Ersetzt durch den Abfallkalender (update-16.sql). Nicht mehr ausführen.
 -- Müllabfuhr Steinhagen, Bezirk 2, 23.10.–31.12.2026
 -- Erinnerung jeweils am Vortag der Abholung, für Tim und Jenny.
 -- Läuft nur, wenn beide Personen gefunden werden; doppelt ausführen legt nichts doppelt an.

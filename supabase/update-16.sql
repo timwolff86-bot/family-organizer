@@ -30,3 +30,34 @@ begin
     end;
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------
+-- Familie Wolff: Abfuhrtermine Steinhagen Bezirk 2 (bis Ende 2026)
+-- übernehmen und die bisherigen einzelnen Müll-Erinnerungen löschen.
+-- Doppelt ausführen schadet nicht.
+insert into public.waste_pickups (date, bins, note)
+values
+  ('2026-10-27', '{bio}', null),
+  ('2026-11-03', '{rest,papier}', null),
+  ('2026-11-10', '{bio,gelb}', null),
+  ('2026-11-17', '{rest}', null),
+  ('2026-11-24', '{bio}', null),
+  ('2026-12-01', '{rest,papier}', null),
+  ('2026-12-08', '{bio,gelb}', null),
+  ('2026-12-15', '{rest}', null),
+  ('2026-12-21', '{bio}', 'vorgezogen – schon Montag'),
+  ('2026-12-29', '{rest,papier}', null)
+on conflict (date) do nothing;
+
+-- Erinnerung am Vortag um 19:00 für Tim und Jenny
+insert into public.app_settings (key, value)
+select 'waste', jsonb_build_object(
+  'on', true,
+  'time', '19:00',
+  'people', coalesce((select jsonb_agg(id) from public.members where name ilike 'tim%' or name ilike 'jenny%'), '[]'::jsonb)
+)
+on conflict (key) do nothing;
+
+-- Alte Müll-Erinnerungen (aus muell-2026-bezirk2.sql) entfernen
+delete from public.tasks
+where kind = 'erinnerung' and notes ilike '%rausstellen%';
