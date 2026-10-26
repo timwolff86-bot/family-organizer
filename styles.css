@@ -4864,3 +4864,9 @@ details[open] > summary .sum-ic {
 .ag-note.waste-note .bins {
   margin-right: 8px;
 }
+/* Tonnen hinter dem Text einer Erinnerung */
+.lrow.waste .bins,
+.frow.waste .fr-title .bins,
+.task .title .bins {
+  margin: 0 0 0 6px;
+}

@@ -1236,7 +1236,7 @@ function listDay(day) {
             off: false,
             rem: true,
             sort: w.sort,
-            html: lrow(esc(w.sort), `${binsIcons(w.p.bins)}${esc(binsText(w.p.bins))} rausstellen`, wasteSettings().people || [], `rem ${w.p.put_out_at ? 'off' : ''}`),
+            html: lrow(esc(w.sort), `${ic('bell')}${esc(binsText(w.p.bins))} rausstellen`, wasteSettings().people || [], `rem waste ${w.p.put_out_at ? 'off' : ''}`),
           })),
         ]
           .sort((a, b) => a.off - b.off || a.sort.localeCompare(b.sort) || !!a.rem - !!b.rem)
@@ -1386,6 +1386,16 @@ function viewMonat() {
 }
 
 // Einträge eines Tages, jeder direkt antippbar
+// Erinnerungen/Aufgaben des Tages, "Tonne rausstellen" nach Uhrzeit einsortiert
+function agendaRows(items, w) {
+  const rows = items.map(taskRow);
+  if (w) {
+    const at = items.filter((x) => isReminder(x.t) && (D.hm(x.t.due_time) || '99') <= w.sort).length;
+    rows.splice(at, 0, wasteTaskRow(w));
+  }
+  return rows.join('');
+}
+
 function monthAgenda(day) {
   const events = eventsOn(day);
   const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && !x.undated);
@@ -1398,10 +1408,9 @@ function monthAgenda(day) {
     ferien ? `<div class="ag-note">🏖️ ${esc(ferien.name)}</div>` : '',
     ...birthdaysOn(day).map((b) => `<button class="ag-note bd-note" data-action="edit-birthday" data-id="${b.id}">${birthdayHtml(b, day)}</button>`),
     pickupOn(day) ? `<button class="ag-note waste-note" data-action="tab" data-tab="abfall">${binsIcons(pickupOn(day).bins)}${esc(binsText(pickupOn(day).bins))}</button>` : '',
-    wasteFlowItem(day) ? `<button class="ag-note waste-note" data-action="tab" data-tab="abfall">${binsIcons(wasteFlowItem(day).p.bins)}${esc(wasteFlowItem(day).sort)} ${esc(binsText(wasteFlowItem(day).p.bins))} rausstellen</button>` : '',
   ].join('');
   const items = [...reminders, ...tasks];
-  const empty = !events.length && !items.length && !meal?.text && !notes;
+  const empty = !events.length && !items.length && !meal?.text && !notes && !wasteFlowItem(day);
   return `
     <section class="agenda">
       <div class="section-head">
@@ -1410,7 +1419,7 @@ function monthAgenda(day) {
       </div>
       ${notes}
       ${events.map(eventCard).join('')}
-      ${items.length ? `<ul class="tasks card">${items.map(taskRow).join('')}</ul>` : ''}
+      ${items.length || wasteFlowItem(day) ? `<ul class="tasks card">${agendaRows(items, wasteFlowItem(day))}</ul>` : ''}
       ${
         meal?.text
           ? `<button class="card ag-event" data-action="${meal.recipe_id ? 'open-recipe' : 'pick-recipe'}" data-id="${meal.recipe_id || ''}" data-day="${day}">
@@ -2345,12 +2354,25 @@ function wasteFlowRow(it) {
   return `<div class="frow rem waste ${p.put_out_at ? 'done' : ''}">
     <button class="fr-open" data-action="tab" data-tab="abfall">
       <span class="fr-time">${esc(s.time || '19:00')}</span>
-      <span class="fr-body"><span class="fr-title title">${binsIcons(p.bins)}${esc(binsText(p.bins))} rausstellen</span>
+      <span class="fr-body"><span class="fr-title title">${ic('bell')}${esc(binsText(p.bins))} rausstellen${binsIcons(p.bins)}</span>
       <span class="fr-sub">Abholung morgen${p.note ? ` · ${esc(p.note)}` : ''}${p.put_out_at && by ? ` · erledigt von ${esc(by.name)}` : ''}</span></span>
     </button>
     ${avatarStack(s.people || [])}
     <button class="check" data-action="waste-out" data-id="${p.id}" aria-label="Rausgestellt">${p.put_out_at ? ic('check') : ''}</button>
   </div>`;
+}
+
+// Wie eine Erinnerung in Aufgabenlisten (Monat): Kreis zum Abhaken, Uhrzeit, Personen
+function wasteTaskRow(it) {
+  const { p } = it;
+  const s = wasteSettings();
+  return `<li class="task ${p.put_out_at ? 'done' : ''}">
+    <button class="check" data-action="waste-out" data-id="${p.id}" aria-label="Rausgestellt">${p.put_out_at ? ic('check') : ''}</button>
+    <button class="task-main" data-action="tab" data-tab="abfall">
+      <span class="title">${esc(binsText(p.bins))} rausstellen${binsIcons(p.bins)}</span>
+      <span class="meta"><span class="tag time">${ic('clock')}${esc(s.time || '19:00')}</span>${chips(s.people || [])}</span>
+    </button>
+  </li>`;
 }
 
 // Text oder Kalenderdatei (.ics) → Abholtage { date, bins[] }
