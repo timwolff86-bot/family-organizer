@@ -392,7 +392,7 @@ async function removeWithUndo(table, ids, label) {
 }
 
 // Spalte → Datenbank-Update, das sie anlegt (für eine verständliche Meldung)
-const COLUMN_UPDATES = { assigned: 17, created_by: 17, repeat_until: 13, remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
+const COLUMN_UPDATES = { skipped: 20, assigned: 17, created_by: 17, repeat_until: 13, remind: 12, series_id: 11, series_date: 11, all_day: 9, member_ids: 4, skip_to: 1, skip_back: 1 };
 
 function fail(err) {
   console.error(err);
@@ -706,12 +706,12 @@ function tasksOn(day, { filter = true, kind = 'aufgabe' } = {}) {
     if (isRecurring(t)) {
       if (occursOn(t, day)) {
         const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === day);
-        const on = c?.created_at ? D.toKey(new Date(c.created_at)) : null;
-        out.push({ t, day, done: !!c, recurring: true, doneOn: on && on > day ? on : null });
+        const on = c?.created_at && !c.skipped ? D.toKey(new Date(c.created_at)) : null;
+        out.push({ t, day, done: !!c && !c.skipped, skipped: !!c?.skipped, recurring: true, doneOn: on && on > day ? on : null });
       }
       // An diesem Tag verspätet abgehakt (für einen früheren Termin): hier auch zeigen
       for (const c of state.data.task_completions) {
-        if (c.task_id !== t.id || !c.created_at || c.date >= day || D.toKey(new Date(c.created_at)) !== day) continue;
+        if (c.task_id !== t.id || c.skipped || !c.created_at || c.date >= day || D.toKey(new Date(c.created_at)) !== day) continue;
         out.push({ t, day: c.date, done: true, recurring: true, lateBy: daysBetween(c.date, day) });
       }
       // Heute zusätzlich: zuletzt verpasster Termin dieser Aufgabe (bis zu 7 Tage zurück)
@@ -774,7 +774,7 @@ function toggleTask(taskId, day) {
 
 // Erinnerung, deren Uhrzeit heute schon vorbei ist
 function isLate(x) {
-  if (x.done || !x.t.due_time || x.day !== D.todayKey() || x.overdue) return false;
+  if (x.done || x.skipped || !x.t.due_time || x.day !== D.todayKey() || x.overdue) return false;
   const now = new Date();
   return D.hm(x.t.due_time) <= `${D.pad(now.getHours())}:${D.pad(now.getMinutes())}`;
 }
@@ -794,7 +794,9 @@ function taskRow(x, { stack = false } = {}) {
   const badges = [
     isReminder(t) && state.view === 'person' ? `<span class="tag time">${ic('bell')}</span>` : '',
     t.due_time ? `<span class="tag time ${isLate(x) ? 'red' : ''}">${ic('clock')}${D.hm(t.due_time)}</span>` : '',
-    x.missed
+    x.skipped
+      ? '<span class="tag">ausgelassen</span>'
+      : x.missed
       ? `<span class="tag">${esc(missedLabel(x.day))} nicht erledigt</span>`
       : x.overdue
         ? `<span class="tag">seit ${esc(D.formatDayMonth(t.due_date))}</span>`
@@ -808,11 +810,13 @@ function taskRow(x, { stack = false } = {}) {
     x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : '',
   ].join('');
   return `
-    <li class="task ${x.done ? 'done' : ''}">
-      <button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">
-        ${x.done ? ic('check') : ''}
-      </button>
-      <button class="task-main" data-action="edit-task" data-id="${t.id}">
+    <li class="task ${x.done ? 'done' : ''} ${x.skipped ? 'skipped' : ''}">
+      ${
+        x.skipped
+          ? '<span class="check-gap" aria-hidden="true"></span>'
+          : `<button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>`
+      }
+      <button class="task-main" data-action="edit-task" data-id="${t.id}" data-day="${x.day}">
         <span class="title">${esc(t.title)}</span>
         <span class="meta">${badges}${stack ? '' : chips(peopleOf(t))}${by ? `<span class="muted small with-ic">${ic('check')}${esc(by.name)}</span>` : ''}</span>
       </button>
@@ -884,13 +888,14 @@ function flowRow(it) {
   }
   const { x } = it;
   const { t } = x;
-  return `<div class="frow rem ${x.done ? 'done' : ''}">
-      <button class="fr-open" data-action="edit-task" data-id="${t.id}">
-        <span class="fr-time ${isLate(x) ? 'late' : ''}">${t.due_time ? D.hm(t.due_time) : ''}</span>
-        <span class="fr-body"><span class="fr-title title">${ic('bell')}${esc(t.title)}${x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : ''}</span></span>
+  return `<div class="frow rem ${x.done ? 'done' : ''} ${x.skipped ? 'off' : ''}">
+      <button class="fr-open" data-action="edit-task" data-id="${t.id}" data-day="${x.day}">
+        <span class="fr-time ${isLate(x) && !x.skipped ? 'late' : ''}">${t.due_time ? D.hm(t.due_time) : ''}</span>
+        <span class="fr-body"><span class="fr-title title">${ic('bell')}${esc(t.title)}${x.recurring ? `<span class="muted rep">${ic('repeat')}</span>` : ''}</span>
+        ${x.skipped ? '<span class="fr-sub">ausgelassen</span>' : ''}</span>
       </button>
       ${avatarStack(peopleOf(t))}
-      <button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>
+      ${x.skipped ? '<span class="check-gap" aria-hidden="true"></span>' : `<button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>`}
     </div>`;
 }
 
@@ -998,7 +1003,9 @@ function weekTaskStats(id) {
       const since = t.created_at ? D.toKey(new Date(t.created_at)) : null;
       for (const d of days) {
         if ((since && d < since) || !occursOn(t, d)) continue;
-        items.push({ t, day: d, done: state.data.task_completions.some((x) => x.task_id === t.id && x.date === d) });
+        const c = state.data.task_completions.find((x) => x.task_id === t.id && x.date === d);
+        if (c?.skipped) continue; // ausgelassen: weder erledigt noch liegen geblieben
+        items.push({ t, day: d, done: !!c });
       }
     } else if (t.due_date && t.due_date >= days[0] && t.due_date <= today) {
       items.push({ t, day: t.due_date, done: !!t.done_at });
@@ -1075,7 +1082,9 @@ function personRow(day, first, it, id) {
   const sub = [
     `${rem ? 'Erinnerung' : 'Aufgabe'}${x.recurring ? `<span class="rep">${ic('repeat')}</span>` : ''}`,
     t.due_time ? D.hm(t.due_time) : '',
-    x.missed
+    x.skipped
+      ? 'ausgelassen'
+      : x.missed
       ? `<span>${esc(missedLabel(x.day))} nicht erledigt</span>`
       : x.overdue
         ? `<span>seit ${esc(D.formatDayMonth(t.due_date))}</span>`
@@ -1088,8 +1097,8 @@ function personRow(day, first, it, id) {
               : '',
     esc(others(peopleOf(t))),
   ].filter(Boolean);
-  return `<div class="frow prow ${first ? 'first' : ''} ${x.done ? 'done' : ''}">
-      <button class="fr-open" data-action="edit-task" data-id="${t.id}">
+  return `<div class="frow prow ${first ? 'first' : ''} ${x.done ? 'done' : ''} ${x.skipped ? 'off' : ''}">
+      <button class="fr-open" data-action="edit-task" data-id="${t.id}" data-day="${x.day}">
         <span class="fr-time">${dayLabel}</span>
         <span class="fr-body"><span class="fr-title title">${rem ? ic('bell') : ''}${esc(t.title)}</span><span class="fr-sub">${sub.join(' · ')}</span></span>
       </button>
@@ -1249,7 +1258,7 @@ function listDay(day) {
   const today = D.todayKey();
   const events = eventsOn(day).filter((o) => listPersonOk(eventPeople(o.ev)));
   const tasks = tasksOn(day, { filter: false }).filter((x) => !x.undated && !x.overdue && (!state.listPerson || peopleOf(x.t).includes(state.listPerson)));
-  const open = tasks.filter((x) => !x.done).length;
+  const open = tasks.filter((x) => !x.done && !x.skipped).length;
   const reminders = tasksOn(day, { filter: false, kind: 'erinnerung' }).filter((x) => !x.overdue && listPersonOk(peopleOf(x.t)));
   const bdays = birthdaysOn(day);
   const holiday = holidayOn(day, state.land);
@@ -1283,7 +1292,7 @@ function listDay(day) {
             off: false,
             rem: true,
             sort: D.hm(x.t.due_time) || '',
-            html: lrow(x.t.due_time ? D.hm(x.t.due_time) : '', `${ic('bell')}${esc(x.t.title)}`, peopleOf(x.t), `rem ${x.done ? 'off' : ''}`),
+            html: lrow(x.t.due_time ? D.hm(x.t.due_time) : '', `${ic('bell')}${esc(x.t.title)}`, peopleOf(x.t), `rem ${x.done || x.skipped ? 'off' : ''}`),
           })),
           // Abfallkalender: am Vortag "rausstellen" zur eingestellten Uhrzeit
           ...[wasteFlowItem(day)].filter(Boolean).filter((w) => listPersonOk(wasteSettings().people || [])).map((w) => ({
@@ -2436,7 +2445,9 @@ function describeChange(table, a, b) {
     }
     case 'task_completions': {
       const t = state.data.tasks.find((x) => x.id === row.task_id);
-      if (!t || a || !b) return null; // nur Abhaken, nicht das Zurücknehmen
+      if (!t || !b || (a && a.skipped === b.skipped)) return null; // nur Abhaken/Auslassen, nicht das Zurücknehmen
+      if (b.skipped) return { ...base, entity: isReminder(t) ? 'reminder' : 'task', entity_id: t.id, action: 'skip', title: t.title, detail: shortDay(b.date), people: peopleOf(t), private: isReminder(t) && peopleOf(t).length > 0 };
+      if (a) return null;
       return { ...base, entity: isReminder(t) ? 'reminder' : 'task', entity_id: t.id, action: 'done', title: t.title, detail: b.date !== D.todayKey() ? `für ${shortDay(b.date)}` : '', people: peopleOf(t), private: isReminder(t) && peopleOf(t).length > 0 };
     }
     case 'shopping_items':
@@ -2554,6 +2565,7 @@ function activityText(g) {
     case 'task:update': case 'reminder:update': return `hat ${b(x.title)} geändert`;
     case 'task:delete': case 'reminder:delete': return `hat ${kind} ${b(x.title)} gelöscht`;
     case 'task:done': case 'reminder:done': return `hat ${b(x.title)} erledigt ✓`;
+    case 'task:skip': case 'reminder:skip': return `hat ${b(x.title)} einmal ausgelassen`;
     case 'shop:add': return n > 1 ? `hat ${n} Artikel auf die Einkaufsliste gesetzt` : `hat ${b(x.title)} auf die Einkaufsliste gesetzt`;
     case 'shop:bought': return n > 1 ? `hat eingekauft: ${n} Artikel` : `hat ${b(x.title)} eingekauft`;
     case 'meal:plan': return `hat ${b(x.title)} eingeplant`;
@@ -4101,6 +4113,14 @@ function readRhythm(f, t) {
 }
 const noRhythmFor = (t) => ({ repeat: null, weekdays: null, repeat_from: null, ...(t?.repeat_until ? { repeat_until: null } : {}) });
 
+// Serie: nur diesen einen Tag auslassen (oder wieder einplanen) – wie "fällt aus" bei Terminen
+function skipButton(t, day) {
+  if (!t?.id || !isRecurring(t) || !day || !occursOn(t, day)) return '';
+  const skipped = state.data.task_completions.some((x) => x.task_id === t.id && x.date === day && x.skipped);
+  return `<button type="button" class="btn ghost wide" data-action="task-skip" data-id="${t.id}" data-day="${day}">
+    ${skipped ? `Am ${esc(D.formatShort(day))} doch wieder` : `Nur am ${esc(D.formatShort(day))} auslassen`}</button>`;
+}
+
 function reminderForm(t, day) {
   const isNew = !t;
   t ||= { due_date: day || state.date, assignees: presetPeople() || (state.me ? [state.me] : []) };
@@ -4120,7 +4140,7 @@ function reminderForm(t, day) {
     <p class="muted small hint with-ic">${ic('lock')}Sehen können die Erinnerung nur die ausgewählten Personen und du.</p>
     ${peoplePicker(peopleOf(t))}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
-  const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Erinnerung löschen</button>`;
+  const extra = isNew ? '' : `${skipButton(t, day)}<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">${isRecurring(t) ? 'Ganze Serie löschen' : 'Erinnerung löschen'}</button>`;
   openSheet(
     isNew ? 'Neue Erinnerung' : 'Erinnerung bearbeiten',
     inner,
@@ -4168,7 +4188,7 @@ function taskForm(t, day) {
     ${rhythmFields(t, day)}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
 
-  const extra = isNew ? '' : `<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">Aufgabe löschen</button>`;
+  const extra = isNew ? '' : `${skipButton(t, day)}<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">${isRecurring(t) ? 'Ganze Serie löschen' : 'Aufgabe löschen'}</button>`;
 
   openSheet(
     isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten',
@@ -4470,7 +4490,14 @@ const actions = {
   'toggle-task': (d) => toggleTask(d.id, d.day),
   'edit-task': (d) => {
     const t = state.data.tasks.find((x) => x.id === d.id);
-    if (t) (isReminder(t) ? reminderForm : taskForm)(t);
+    if (t) (isReminder(t) ? reminderForm : taskForm)(t, d.day || null);
+  },
+  'task-skip': (d) => {
+    const c = state.data.task_completions.find((x) => x.task_id === d.id && x.date === d.day);
+    closeSheet();
+    if (c?.skipped) return del('task_completions', c.id);
+    save('task_completions', { ...(c ? { id: c.id } : {}), task_id: d.id, date: d.day, skipped: true }, 'task_id,date');
+    toast(`Am ${D.formatShort(d.day)} ausgelassen`);
   },
   'new-reminder': () => reminderForm(null, state.date),
   'remove-avatar': (d, el) => {

@@ -5028,3 +5028,21 @@ details[open] > summary .sum-ic {
   line-height: 1.3;
   min-width: 0;
 }
+/* Einzelner Tag einer Serie ausgelassen */
+.check-gap {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+.frow .check-gap {
+  width: 24px;
+  height: 24px;
+}
+.task.skipped .title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.frow.rem.off .fr-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}

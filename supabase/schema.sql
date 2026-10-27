@@ -244,6 +244,9 @@ create table if not exists public.activities (
 );
 create index if not exists activities_created_at on public.activities (created_at desc);
 
+-- Einzelne Tage einer Serie auslassen (Update 20)
+alter table public.task_completions add column if not exists skipped boolean not null default false;
+
 -- Zugriff: nur angemeldete Nutzer. Neue Registrierungen in Supabase abschalten,
 -- dann kommen nur die Konten rein, die ihr selbst anlegt.
 do $$
