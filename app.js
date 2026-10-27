@@ -3101,9 +3101,12 @@ function viewNotiz() {
 }
 
 // Neu anlegen / Name, Symbol, Art ändern; bei Listen: alle Punkte als Text bearbeiten
-function noteForm(n) {
+function noteForm(n, { copy = false } = {}) {
   if (!notesReady()) return toast('Bitte zuerst supabase/update-15.sql in Supabase ausführen.');
-  const isNew = !n;
+  // Als Vorlage kopieren: gleicher Inhalt, alle Haken zurückgesetzt, nicht angeheftet
+  const copyBody = copy && n ? rt.resetChecks(noteHtml(n)) || null : null;
+  if (copy && n) n = { title: `${n.title} (Kopie)`, emoji: n.emoji, pinned: false };
+  const isNew = !n || copy;
   n ||= { kind: 'text', emoji: '📝', items: [] };
   const inner = `
     <label>Name<input name="title" value="${esc(n.title || '')}" required placeholder="z. B. Packliste Urlaub" /></label>
@@ -3111,7 +3114,7 @@ function noteForm(n) {
     <div class="emoji-pick">${NOTE_EMOJIS.map((e) => `<label><input type="radio" name="emoji" value="${e}" ${e === (n.emoji || '📝') ? 'checked' : ''}/><span>${e}</span></label>`).join('')}</div>
     <label class="check-line"><input type="checkbox" name="pinned" ${n.pinned ? 'checked' : ''}/> Oben anheften</label>`;
   openSheet(
-    isNew ? 'Neue Notiz' : 'Notiz bearbeiten',
+    copy ? 'Notiz kopieren' : isNew ? 'Neue Notiz' : 'Notiz bearbeiten',
     inner,
     (f) => {
       const title = f.get('title').trim();
@@ -3120,19 +3123,22 @@ function noteForm(n) {
       if (isNew) {
         const now = new Date().toISOString();
         const id = store.uuid();
-        save('notes', { id, ...row, kind: 'text', body: null, items: [], created_by: state.me || null, updated_by: state.me || null, created_at: now, updated_at: now });
+        save('notes', { id, ...row, kind: 'text', body: copyBody, items: [], created_by: state.me || null, updated_by: state.me || null, created_at: now, updated_at: now });
         closeSheet();
         state.noteId = id;
         navPush();
         state.view = 'notiz';
         window.scrollTo(0, 0);
-        actions['note-edit-body']({ id }); // gleich losschreiben
+        if (copy) {
+          render();
+          toast('Kopie angelegt');
+        } else actions['note-edit-body']({ id }); // gleich losschreiben
         return;
       }
       saveNote(n, row);
       closeSheet();
     },
-    isNew ? '' : `<button type="button" class="btn danger wide" data-action="note-delete" data-id="${n.id}">Notiz löschen</button>`
+    isNew ? '' : `<button type="button" class="btn ghost wide" data-action="note-copy" data-id="${n.id}">${ic('copy')}Als Vorlage kopieren</button><button type="button" class="btn danger wide" data-action="note-delete" data-id="${n.id}">Notiz löschen</button>`
   );
 }
 
@@ -4177,6 +4183,15 @@ function readRhythm(f, t) {
 }
 const noRhythmFor = (t) => ({ repeat: null, weekdays: null, repeat_from: null, ...(t?.repeat_until ? { repeat_until: null } : {}) });
 
+// Kopie einer Aufgabe/Erinnerung: eigenständig, nicht erledigt, Datum nicht in der Vergangenheit
+function taskTemplate(t, day) {
+  const { id, done_at, done_by, created_at, created_by, updated_at, updated_by, ...rest } = t;
+  const today = D.todayKey();
+  return { ...rest, ...(rest.due_date && rest.due_date < today ? { due_date: day && day >= today ? day : today } : {}) };
+}
+const copyButton = (t) =>
+  t?.id ? `<button type="button" class="btn ghost wide" data-action="task-copy" data-id="${t.id}">${ic('copy')}Kopieren</button>` : '';
+
 // Serie: nur diesen einen Tag auslassen (oder wieder einplanen) – wie "fällt aus" bei Terminen
 function skipButton(t, day) {
   if (!t?.id || !isRecurring(t) || !day || !occursOn(t, day)) return '';
@@ -4185,8 +4200,9 @@ function skipButton(t, day) {
     ${skipped ? `Am ${esc(D.formatShort(day))} doch wieder` : `Nur am ${esc(D.formatShort(day))} auslassen`}</button>`;
 }
 
-function reminderForm(t, day) {
-  const isNew = !t;
+function reminderForm(t, day, { copy = false } = {}) {
+  if (copy && t) t = taskTemplate(t, day);
+  const isNew = !t || copy;
   t ||= { due_date: day || state.date, assignees: presetPeople() || (state.me ? [state.me] : []) };
   const weekly = isRecurring(t);
   const inner = `
@@ -4204,9 +4220,9 @@ function reminderForm(t, day) {
     <p class="muted small hint with-ic">${ic('lock')}Sehen können die Erinnerung nur die ausgewählten Personen und du.</p>
     ${peoplePicker(peopleOf(t))}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
-  const extra = isNew ? '' : `${skipButton(t, day)}<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">${isRecurring(t) ? 'Ganze Serie löschen' : 'Erinnerung löschen'}</button>`;
+  const extra = isNew ? '' : `${copyButton(t)}${skipButton(t, day)}<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">${isRecurring(t) ? 'Ganze Serie löschen' : 'Erinnerung löschen'}</button>`;
   openSheet(
-    isNew ? 'Neue Erinnerung' : 'Erinnerung bearbeiten',
+    copy ? 'Erinnerung kopieren' : isNew ? 'Neue Erinnerung' : 'Erinnerung bearbeiten',
     inner,
     (f) => {
       const people = readPeople();
@@ -4235,8 +4251,9 @@ function reminderForm(t, day) {
   updateRhythmVisibility($('#sheet-root form'));
 }
 
-function taskForm(t, day) {
-  const isNew = !t;
+function taskForm(t, day, { copy = false } = {}) {
+  if (copy && t) t = taskTemplate(t, day);
+  const isNew = !t || copy;
   t ||= { assignee: null, assignees: presetPeople() || [], due_date: day || state.date };
   const mode = isRecurring(t) ? 'weekly' : t.due_date ? 'date' : 'none';
   const inner = `
@@ -4252,10 +4269,10 @@ function taskForm(t, day) {
     ${rhythmFields(t, day)}
     ${moreOptions(`<label>Notiz<textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>`, t.notes)}`;
 
-  const extra = isNew ? '' : `${skipButton(t, day)}<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">${isRecurring(t) ? 'Ganze Serie löschen' : 'Aufgabe löschen'}</button>`;
+  const extra = isNew ? '' : `${copyButton(t)}${skipButton(t, day)}<button type="button" class="btn danger wide" data-action="delete-task" data-id="${t.id}">${isRecurring(t) ? 'Ganze Serie löschen' : 'Aufgabe löschen'}</button>`;
 
   openSheet(
-    isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten',
+    copy ? 'Aufgabe kopieren' : isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten',
     inner,
     (f) => {
       const repeat = f.get('repeat');
@@ -4602,6 +4619,15 @@ const actions = {
   'event-copy': (d) => {
     const ev = state.data.events.find((e) => e.id === d.id);
     if (ev) eventForm(ev, d.day || null, { copy: true });
+  },
+  'task-copy': (d) => {
+    const t = state.data.tasks.find((x) => x.id === d.id);
+    if (!t) return;
+    (t.kind === 'erinnerung' ? reminderForm : taskForm)(t, state.date, { copy: true });
+  },
+  'note-copy': (d) => {
+    const n = (state.data.notes || []).find((x) => x.id === d.id);
+    if (n) noteForm(n, { copy: true });
   },
   'event-edit': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day || undefined),
   'edit-member': (d) => memberForm(member(d.id)),
