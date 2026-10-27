@@ -222,3 +222,54 @@ export function placeCaret(el) {
   sel.removeAllRanges();
   sel.addRange(r);
 }
+
+/* ---------- Checklisten in Notizen ---------- */
+
+// Alte Listen-Notizen → formatierte Notiz (Zwischenüberschriften + Checkliste, Häkchen bleiben)
+export function listItemsToHtml(items) {
+  const doc = inert();
+  const root = doc.createElement('div');
+  let ul = null;
+  for (const x of items || []) {
+    if (x.head) {
+      const h = doc.createElement('h3');
+      h.textContent = x.text;
+      root.appendChild(h);
+      ul = null;
+      continue;
+    }
+    if (!ul) {
+      ul = doc.createElement('ul');
+      ul.setAttribute('class', 'checklist');
+      root.appendChild(ul);
+    }
+    const li = doc.createElement('li');
+    li.textContent = x.text;
+    if (x.done) li.setAttribute('data-done', '1');
+    ul.appendChild(li);
+  }
+  return root.innerHTML;
+}
+
+function checkItems(body) {
+  if (!isHtml(body)) return { root: null, items: [] };
+  const doc = inert();
+  const root = doc.createElement('div');
+  root.innerHTML = sanitize(body);
+  return { root, items: [...root.querySelectorAll('ul.checklist > li')] };
+}
+// Fortschritt: wie viele Punkte abgehakt
+export function checkStats(body) {
+  const { items } = checkItems(body);
+  return { done: items.filter((li) => li.getAttribute('data-done') === '1').length, total: items.length };
+}
+// Alle Haken entfernen (Packliste fürs nächste Mal)
+export function resetChecks(body) {
+  const { root, items } = checkItems(body);
+  if (!root) return body;
+  items.forEach((li) => li.removeAttribute('data-done'));
+  return sanitize(root.innerHTML);
+}
+// Offene Punkte als Text (z. B. für die Einkaufsliste)
+export const openChecks = (body) =>
+  checkItems(body).items.filter((li) => li.getAttribute('data-done') !== '1').map((li) => li.textContent.trim()).filter(Boolean);
