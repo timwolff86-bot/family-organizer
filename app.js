@@ -6,6 +6,7 @@ import { STATES, holidayOn, refreshSchoolHolidays, schoolHolidayOn } from './hol
 import { combineFilters, parseQuery, scoreFields } from './search.js';
 import { ic } from './icons.js';
 import * as push from './push.js';
+import * as rt from './richtext.js';
 
 /* ================= Zustand ================= */
 
@@ -2973,7 +2974,7 @@ function notePreview(n) {
     const open = noteItems(n).filter((x) => !x.head && !x.done).map((x) => x.text);
     return open.length ? open.slice(0, 4).join(' · ') : noteItems(n).length ? 'Alles abgehakt' : 'Noch leer';
   }
-  return (n.body || '').replace(/\s+/g, ' ').trim() || 'Noch leer';
+  return rt.toText(n.body) || 'Noch leer';
 }
 
 function saveNote(n, patch) {
@@ -2982,15 +2983,34 @@ function saveNote(n, patch) {
 
 // Text-Notiz: beim Tippen kurz warten, dann speichern (und beim Verlassen sofort)
 let noteTimer;
-function saveNoteBody(t) {
+function saveNoteBody(ed) {
   clearTimeout(noteTimer);
-  const n = (state.data.notes || []).find((x) => x.id === t.dataset.id);
-  if (n && (n.body || '') !== t.value) saveNote(n, { body: t.value });
+  const n = (state.data.notes || []).find((x) => x.id === ed.dataset.id);
+  if (!n) return;
+  const html = rt.sanitize(ed.innerHTML);
+  const empty = !rt.toText(html) && !/<(table|hr)/i.test(html);
+  const body = empty ? '' : html;
+  if ((n.body || '') !== body) saveNote(n, { body });
 }
 const autoGrow = (t) => {
   t.style.height = 'auto';
   t.style.height = `${Math.max(t.scrollHeight, 160)}px`;
 };
+
+// Formatierungsleiste (bleibt beim Schreiben oben sichtbar)
+function richToolbar() {
+  const b = (cmd, label, aria) => `<button type="button" class="rt-btn" data-action="rt" data-cmd="${cmd}" aria-label="${aria}">${label}</button>`;
+  return `<div class="rt-toolbar" role="toolbar" aria-label="Formatierung">
+    <div class="rt-row">
+      ${b('bold', '<b>B</b>', 'Fett')}${b('italic', '<i>I</i>', 'Kursiv')}${b('h2', 'H1', 'Große Überschrift')}${b('h3', 'H2', 'Mittlere Überschrift')}
+      ${b('ul', '•', 'Liste')}${b('check', '☑', 'Checkliste')}${b('quote', '❝', 'Zitat-Block')}${b('quotes', '„ “', 'Anführungszeichen')}${b('hr', '—', 'Trennlinie')}${b('table', '⊞', 'Tabelle einfügen')}
+    </div>
+    <div class="rt-row rt-table" hidden>
+      <span class="muted small">Tabelle:</span>
+      ${b('row-add', '+ Zeile', 'Zeile hinzufügen')}${b('col-add', '+ Spalte', 'Spalte hinzufügen')}${b('row-del', '− Zeile', 'Zeile löschen')}${b('col-del', '− Spalte', 'Spalte löschen')}${b('table-del', '🗑', 'Tabelle löschen')}
+    </div>
+  </div>`;
+}
 
 function notesEntry() {
   const list = sortedNotes();
@@ -3008,7 +3028,7 @@ function notesEntry() {
 
 function noteRow(n) {
   const p = noteProgress(n);
-  const search = [n.title, n.body || '', ...noteItems(n).map((x) => x.text)].join(' ').toLowerCase();
+  const search = [n.title, rt.toText(n.body), ...noteItems(n).map((x) => x.text)].join(' ').toLowerCase();
   return `<li data-search="${esc(search)}"><button class="note-row" data-action="open-note" data-id="${n.id}">
     <span class="note-emoji">${esc(n.emoji || '📝')}</span>
     <span class="grow-col"><span class="title">${esc(n.title)}</span><span class="muted small note-prev">${esc(notePreview(n))}</span></span>
@@ -3068,10 +3088,11 @@ function viewNotiz() {
     return `${head}
       ${
         state.noteEditing === n.id
-          ? `<textarea id="note-body" class="note-body-edit" data-id="${n.id}" placeholder="Hier schreiben …">${esc(n.body || '')}</textarea>
-             <button class="btn primary wide" data-action="note-done">Fertig</button>`
-          : `<div class="card pad note-text" data-action="note-edit-body" data-id="${n.id}">${
-              n.body?.trim() ? linkify(n.body).replace(/\n/g, '<br />') : '<span class="muted">Antippen zum Schreiben …</span>'
+          ? `${richToolbar()}
+             <div id="note-editor" class="card pad note-text rich editing" contenteditable="true" data-id="${n.id}" data-placeholder="Hier schreiben …">${rt.bodyToHtml(n.body || '')}</div>
+             <button class="btn primary wide note-done" data-action="note-done">Fertig</button>`
+          : `<div class="card pad note-text rich" data-action="note-edit-body" data-id="${n.id}">${
+              n.body?.trim() ? rt.renderHtml(n.body) : '<p class="muted">Antippen zum Schreiben …</p>'
             }</div>
              <p class="muted small center">Zum Ändern auf den Text tippen. Nummern und Adressen sind antippbar.</p>`
       }`;
@@ -3317,7 +3338,7 @@ function searchItems() {
   const notes = [];
   if (want('notiz') && !range && !people.length && (terms.length || kind === 'notiz')) {
     for (const n of state.data.notes || []) {
-      const score = scoreFields(terms, [{ text: n.title, weight: 1 }, { text: n.body, weight: 0.7 }, { text: noteItems(n).map((x) => x.text).join(' '), weight: 0.7 }]);
+      const score = scoreFields(terms, [{ text: n.title, weight: 1 }, { text: rt.toText(n.body), weight: 0.7 }, { text: noteItems(n).map((x) => x.text).join(' '), weight: 0.7 }]);
       if (score) notes.push({ n, score });
     }
     notes.sort((a, b) => b.score - a.score || (b.n.updated_at || '').localeCompare(a.n.updated_at || ''));
@@ -3568,7 +3589,7 @@ function render() {
 
   // Nicht neu zeichnen, während jemand tippt – sonst springt der Cursor weg.
   const active = document.activeElement;
-  if (active && app.contains(active) && active.matches('input, textarea')) {
+  if (active && app.contains(active) && active.matches('input, textarea, [contenteditable="true"]')) {
     state.pendingRender = true;
     return;
   }
@@ -3684,8 +3705,61 @@ window.visualViewport?.addEventListener('resize', fitToKeyboard);
 window.visualViewport?.addEventListener('scroll', fitToKeyboard);
 // Text-Notiz: beim Verlassen des Felds sofort speichern
 document.addEventListener('focusout', (e) => {
-  if (e.target.id === 'note-body') saveNoteBody(e.target);
+  if (e.target.id === 'note-editor') saveNoteBody(e.target);
 });
+// Formatierungsleiste: Tippen darf die Markierung im Text nicht aufheben
+document.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.rt-toolbar')) e.preventDefault();
+});
+document.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.rt-toolbar')) e.preventDefault();
+});
+// Tabellen-Knöpfe nur zeigen, wenn der Cursor in einer Tabelle steht; aktive Formate markieren
+function updateRichToolbar() {
+  const ed = $('#note-editor');
+  const bar = $('.rt-toolbar');
+  if (!ed || !bar) return;
+  bar.querySelector('.rt-table').hidden = !rt.currentCell(ed);
+  const inEd = ed.contains(document.getSelection()?.anchorNode);
+  for (const cmd of ['bold', 'italic']) bar.querySelector(`[data-cmd="${cmd}"]`)?.classList.toggle('on', inEd && document.queryCommandState(cmd));
+  const block = inEd ? (document.queryCommandValue('formatBlock') || '').toLowerCase() : '';
+  for (const [cmd, tag] of [['h2', 'h2'], ['h3', 'h3'], ['quote', 'blockquote']]) bar.querySelector(`[data-cmd="${cmd}"]`)?.classList.toggle('on', block === tag);
+}
+document.addEventListener('selectionchange', () => $('#note-editor') && updateRichToolbar());
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const ed = e.target.closest?.('#note-editor');
+  if (ed && rt.nextCell(ed, e.shiftKey)) {
+    e.preventDefault();
+    updateRichToolbar();
+  }
+});
+// Einfügen aus anderen Apps: nur erlaubte Formate übernehmen
+document.addEventListener('paste', (e) => {
+  const ed = e.target.closest?.('#note-editor');
+  if (!ed) return;
+  e.preventDefault();
+  const html = e.clipboardData?.getData('text/html');
+  const text = e.clipboardData?.getData('text/plain') || '';
+  if (html) document.execCommand('insertHTML', false, rt.sanitize(html));
+  else document.execCommand('insertText', false, text);
+});
+// Checkliste in der Notiz-Ansicht: Punkt antippen = abhaken (ohne in den Bearbeiten-Modus zu wechseln)
+document.addEventListener(
+  'click',
+  (e) => {
+    const li = e.target.closest('.note-text.rich:not(.editing) ul.checklist > li');
+    if (!li || e.target.closest('a')) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const box = li.closest('.note-text');
+    const index = [...box.querySelectorAll('ul.checklist > li')].indexOf(li);
+    const n = (state.data.notes || []).find((x) => x.id === box.dataset.id);
+    const body = n && rt.toggleCheck(n.body, index);
+    if (body != null) saveNote(n, { body });
+  },
+  true
+);
 // Feld mit Fokus nicht hinter dem Sichern-Knopf verstecken
 document.addEventListener('focusin', (e) => {
   if (!e.target.closest?.('.sheet') || !e.target.matches('input, textarea, select')) return;
@@ -4836,19 +4910,59 @@ const actions = {
   'note-edit-body': (d) => {
     state.noteEditing = d.id;
     render();
-    const t = $('#note-body');
-    if (t) {
-      t.focus();
-      t.setSelectionRange(t.value.length, t.value.length);
-      autoGrow(t);
+    const ed = $('#note-editor');
+    if (ed) {
+      document.execCommand('defaultParagraphSeparator', false, 'p');
+      ed.focus();
+      const r = document.createRange();
+      r.selectNodeContents(ed);
+      r.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
     }
   },
   'note-done': () => {
-    const t = $('#note-body');
-    if (t) saveNoteBody(t);
+    const ed = $('#note-editor');
+    if (ed) saveNoteBody(ed);
     state.noteEditing = null;
-    t?.blur();
+    ed?.blur();
     render();
+  },
+  rt: (d) => {
+    const ed = $('#note-editor');
+    if (!ed) return;
+    if (!ed.contains(document.getSelection()?.anchorNode)) ed.focus();
+    const block = () => (document.queryCommandValue('formatBlock') || '').toLowerCase();
+    const cmd = d.cmd;
+    if (cmd === 'bold' || cmd === 'italic') document.execCommand(cmd);
+    else if (cmd === 'h2' || cmd === 'h3' || cmd === 'quote') {
+      const tag = cmd === 'quote' ? 'blockquote' : cmd;
+      document.execCommand('formatBlock', false, block() === tag ? 'p' : tag);
+    } else if (cmd === 'ul' || cmd === 'check') {
+      const node = document.getSelection().anchorNode;
+      const ul = (node?.nodeType === 1 ? node : node?.parentElement)?.closest('ul');
+      if (ul && ed.contains(ul) && cmd === 'check' && !ul.classList.contains('checklist')) ul.classList.add('checklist');
+      else if (ul && ed.contains(ul) && cmd === 'ul' && ul.classList.contains('checklist')) ul.classList.remove('checklist');
+      else {
+        document.execCommand('insertUnorderedList');
+        if (cmd === 'check') {
+          const n2 = document.getSelection().anchorNode;
+          (n2?.nodeType === 1 ? n2 : n2?.parentElement)?.closest('ul')?.classList.add('checklist');
+        }
+      }
+    } else if (cmd === 'quotes') {
+      const text = document.getSelection().toString();
+      document.execCommand('insertText', false, `„${text}“`);
+      if (!text) document.getSelection().modify?.('move', 'backward', 'character');
+    } else if (cmd === 'hr') document.execCommand('insertHorizontalRule');
+    else if (cmd === 'table') {
+      document.execCommand('insertHTML', false, rt.TABLE_HTML);
+      rt.focusNewTable(ed);
+    }
+    else rt.tableOp(ed, cmd);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    updateRichToolbar();
   },
   'note-delete': (d) => {
     closeSheet();
@@ -5206,8 +5320,7 @@ document.addEventListener('input', (e) => {
     if (none) none.hidden = shown > 0;
     return;
   }
-  if (el.id === 'note-body') {
-    autoGrow(el);
+  if (el.id === 'note-editor') {
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => saveNoteBody(el), 800);
     return;
