@@ -5051,3 +5051,68 @@ details[open] > summary .sum-ic {
 .lrow.off .av-stack {
   opacity: 0.4;
 }
+
+/* Termin: weitere einzelne Daten */
+.extra-dates:empty {
+  display: none;
+}
+.extra-date {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.extra-date label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  min-width: 0;
+}
+.extra-date input {
+  padding: 8px 6px;
+  font-size: 15px;
+  min-width: 0;
+}
+.extra-date .icon-btn .ic {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.add-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px 10px;
+  font-size: 15px;
+}
+.add-date .ic {
+  width: 16px;
+  height: 16px;
+}
+.evv-copy {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.extra-date {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas: 'd d x' 's e .';
+  padding: 10px 0 2px;
+  border-top: 1px dashed var(--line);
+}
+.extra-date label:nth-of-type(1) { grid-area: d; }
+.extra-date label:nth-of-type(2) { grid-area: s; }
+.extra-date label:nth-of-type(3) { grid-area: e; }
+.extra-date .icon-btn { grid-area: x; align-self: end; }
+.sheet-body .add-date,
+.sheet .add-date {
+  display: inline-flex;
+  flex-direction: row;
+  width: auto;
+  align-self: flex-start;
+  justify-content: flex-start;
+}

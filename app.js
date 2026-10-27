@@ -3791,6 +3791,7 @@ function eventView(ev, day) {
         ${ev.location ? line('pin', `<a href="${esc(mapUrl)}" target="_blank" rel="noopener">${esc(ev.location)}</a>`) : ''}
         ${people.length ? line('users', `<span class="evv-people">${people.map((m) => `<span>${avatar(m, 'xs')}${esc(m.name)}</span>`).join('')}</span>`) : ''}
         ${ev.notes ? line('pencil', `<span class="evv-notes">${esc(ev.notes)}</span>`) : ''}
+        <button type="button" class="btn ghost wide evv-copy" data-action="event-copy" data-id="${ev.id}" data-day="${day || ''}">${ic('copy')}Kopieren</button>
         ${
           o && o.weekly
             ? `<button type="button" class="btn ghost wide evv-cancel" data-action="toggle-cancel" data-id="${ev.id}" data-day="${day}">
@@ -3805,8 +3806,16 @@ function eventView(ev, day) {
 // Spalte created_by bei Terminen erst ab Update 17 (sonst würde Sichern scheitern)
 const eventsHaveCreator = () => !store.isCloud || state.data.events.some((e) => 'created_by' in e);
 
-function eventForm(ev, day) {
-  const isNew = !ev;
+// copy: vorhandenen Termin als Vorlage für einen neuen (unabhängigen) Termin nehmen
+function eventForm(ev, day, { copy = false } = {}) {
+  if (copy && ev) {
+    const date = ev.date && ev.date >= D.todayKey() ? ev.date : day || state.date;
+    ev = {
+      title: ev.title, member_ids: eventPeople(ev), start_time: ev.start_time, end_time: ev.end_time, all_day: ev.all_day,
+      location: ev.location, notes: ev.notes, remind: ev.remind, date, ...(ev.weekdays?.length ? { weekdays: ev.weekdays } : {}),
+    };
+  }
+  const isNew = !ev || copy;
   ev ||= { date: day || state.date, member_ids: presetPeople() || [] };
   const weekly = ev.weekdays?.length > 0;
   const multi = !weekly && ev.end_date && ev.end_date > ev.date;
@@ -3853,6 +3862,12 @@ function eventForm(ev, day) {
       <label><span data-time-label="end">${multi ? 'Ende (letzter Tag)' : 'Ende'}</span><input type="time" name="end_time" value="${esc(D.hm(ev.end_time))}" /></label>
     </div>
     <p class="muted small time-hint">Ohne Uhrzeit = ganztägig</p>
+    ${
+      isNew
+        ? `<div data-show="once" class="extra-dates"></div>
+           <button type="button" class="link add-date" data-show="once" data-action="add-date">${ic('plus')}weiteres Datum</button>`
+        : ''
+    }
     ${moreOptions(
       `<label>Wo?<input name="location" value="${esc(ev.location || '')}" /></label>
        <label>Notiz<textarea name="notes" rows="2">${esc(ev.notes || '')}</textarea></label>
@@ -3934,6 +3949,23 @@ function eventForm(ev, day) {
       let date = null;
       let endDate = null;
       if (repeat === 'once') date = f.get('date_once') || state.date;
+      // Weitere Daten: jeweils ein eigener, unabhängiger Termin (keine Serie)
+      const extraDays = repeat === 'once' && isNew
+        ? f.getAll('xd').map((d, i) => ({ d, s: f.getAll('xs')[i] || '', e: f.getAll('xe')[i] || '' })).filter((x) => x.d)
+        : [];
+      for (const x of extraDays) {
+        save('events', {
+          ...common,
+          ...(eventsHaveCreator() ? { created_by: state.me || null } : {}),
+          date: x.d,
+          weekdays: null,
+          end_date: null,
+          all_day: !x.s,
+          start_time: x.s || null,
+          end_time: x.s ? x.e || null : null,
+        }, 'id', { quiet: true });
+      }
+
       if (repeat === 'multi') {
         date = f.get('date_from') || state.date;
         endDate = f.get('date_to') || null;
@@ -3951,6 +3983,7 @@ function eventForm(ev, day) {
         end_date: endDate,
       }, 'termin', isNew);
       closeSheet();
+      if (extraDays.length) toast(`${extraDays.length + 1} einzelne Termine „${common.title}“ angelegt`);
     },
     extra
   );
@@ -4514,6 +4547,30 @@ const actions = {
     el.closest('form').querySelectorAll('input[name="wd"]').forEach((i) => (i.checked = days.includes(i.value)));
   },
   'edit-event': (d) => eventView(state.data.events.find((e) => e.id === d.id), d.day || null),
+  'add-date': (d, el) => {
+    const form = el.closest('form');
+    const box = form.querySelector('.extra-dates');
+    const rows = box.querySelectorAll('.extra-date');
+    const last = rows[rows.length - 1];
+    const prevDate = last ? last.querySelector('[name="xd"]').value : form.elements.date_once.value;
+    const prevS = last ? last.querySelector('[name="xs"]').value : form.elements.start_time.value;
+    const prevE = last ? last.querySelector('[name="xe"]').value : form.elements.end_time.value;
+    box.insertAdjacentHTML(
+      'beforeend',
+      `<div class="extra-date">
+        <label>Datum<input type="date" name="xd" value="${prevDate ? D.addDays(prevDate, 1) : ''}" /></label>
+        <label>Beginn<input type="time" name="xs" value="${prevS}" /></label>
+        <label>Ende<input type="time" name="xe" value="${prevE}" /></label>
+        <button type="button" class="icon-btn" data-action="remove-date" aria-label="Datum entfernen">${ic('close')}</button>
+      </div>`
+    );
+    box.lastElementChild.querySelector('[name="xd"]').focus();
+  },
+  'remove-date': (d, el) => el.closest('.extra-date').remove(),
+  'event-copy': (d) => {
+    const ev = state.data.events.find((e) => e.id === d.id);
+    if (ev) eventForm(ev, d.day || null, { copy: true });
+  },
   'event-edit': (d) => eventForm(state.data.events.find((e) => e.id === d.id), d.day || undefined),
   'edit-member': (d) => memberForm(member(d.id)),
   'new-birthday': () => birthdayForm(null),
@@ -5070,6 +5127,11 @@ document.addEventListener('change', async (e) => {
     const next = D.addDays(el.value, 1);
     to.min = next;
     if (!to.value || to.value <= el.value) to.value = next;
+  }
+  // Weiteres Datum: auch dort Ende eine Stunde nach Beginn vorschlagen
+  if (el.name === 'xs' && el.value) {
+    const endEl = el.closest('.extra-date').querySelector('[name="xe"]');
+    if (!endEl.value || endEl.value <= el.value) endEl.value = hmPlus(el.value, 60);
   }
   // Termin: Beginn gesetzt → Ende eine Stunde später vorschlagen (wenn leer oder davor)
   if (el.name === 'start_time' && el.value && el.form?.elements.end_time && el.form.elements.repeat?.value !== 'multi') {
