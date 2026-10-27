@@ -340,3 +340,16 @@ export function placeAtSpot(root, spot) {
   } else placeCaret(block); // leerer Absatz
   return true;
 }
+
+// Offene Punkte mit ihrer Zwischenüberschrift (für die Auswahl „Auf die Einkaufsliste“)
+export function openChecksGrouped(body) {
+  const { root } = checkItems(body);
+  if (!root) return [];
+  const out = [];
+  let head = '';
+  for (const el of root.querySelectorAll('h2, h3, ul.checklist > li')) {
+    if (el.tagName !== 'LI') head = el.textContent.trim();
+    else if (el.getAttribute('data-done') !== '1' && el.textContent.trim()) out.push({ head, text: el.textContent.trim() });
+  }
+  return out;
+}

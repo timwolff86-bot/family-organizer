@@ -1832,10 +1832,10 @@ function splitAmount(text) {
   return m ? { amount: m[1].trim(), name: m[2].trim() } : { amount: null, name: String(text).trim() };
 }
 
-function addItem(text, { countUse = true } = {}) {
+function addItem(text, { countUse = true, shop = null } = {}) {
   const { name, amount } = splitAmount(text);
   const category = classify(name, state.data.products);
-  const shop = (state.view === 'einkauf' && state.shopFilter) || defaultShop();
+  shop ||= (state.view === 'einkauf' && state.shopFilter) || defaultShop();
   save('shopping_items', { name, category, done: false, shop, ...(amount ? { amount } : {}) });
   if (countUse) rememberProduct(name, category);
 }
@@ -3140,6 +3140,72 @@ function noteForm(n, { copy = false } = {}) {
     },
     isNew ? '' : `<button type="button" class="btn ghost wide" data-action="note-copy" data-id="${n.id}">${ic('copy')}Als Vorlage kopieren</button><button type="button" class="btn danger wide" data-action="note-delete" data-id="${n.id}">Notiz löschen</button>`
   );
+}
+
+/* ---------- Notiz → Einkaufsliste: vorher auswählen ---------- */
+
+// Was je Notiz abgewählt wurde, merkt sich die App (für alle in der Familie)
+const SKIP_KEY = 'note_shop_skip';
+const shopSkips = () => (state.data.app_settings || []).find((x) => x.key === SKIP_KEY)?.value || {};
+function saveShopSkips(noteId, texts) {
+  if (state.data.missing?.includes('app_settings')) return;
+  const ids = new Set((state.data.notes || []).map((x) => x.id));
+  const value = Object.fromEntries(Object.entries(shopSkips()).filter(([k]) => ids.has(k) && k !== noteId));
+  if (texts.length) value[noteId] = texts;
+  save('app_settings', { key: SKIP_KEY, value }, 'key', { quiet: true });
+}
+
+function noteShopPicker(n) {
+  const items = rt.openChecksGrouped(noteHtml(n));
+  if (!items.length) return toast('Keine offenen Punkte in der Notiz.');
+  const skip = new Set(shopSkips()[n.id] || []);
+  const onList = new Set(state.data.shopping_items.filter((i) => !i.done).map((i) => normalize(i.name)));
+  const shops = shopsReady() ? shopList() : [];
+  let head = null;
+  const rows = items
+    .map((x, i) => {
+      const already = onList.has(normalize(splitAmount(x.text).name));
+      const on = !already && !skip.has(normalize(x.text));
+      const group = x.head !== head && x.head ? `<div class="pick-group">${esc(x.head)}</div>` : '';
+      head = x.head;
+      return `${group}<div class="pick-row ${already ? 'already' : ''}" data-i="${i}">
+        <label class="pick-main"><input type="checkbox" name="pick" value="${i}" ${on ? 'checked' : ''} /><span class="pick-box">${ic('check')}</span>
+          <span class="pick-text">${esc(x.text)}</span></label>
+        ${already ? '<span class="pick-tag">steht schon drauf</span>' : ''}
+        <button type="button" class="icon-btn pick-pen" data-action="pick-edit" aria-label="Text ändern">${ic('pencil')}</button>
+      </div>`;
+    })
+    .join('');
+  const inner = `
+    <div class="pick-head"><span class="muted small">Was soll mit? Antippen zum An- und Abwählen.</span>
+      <button type="button" class="link small" data-action="pick-all">Alle/Keine</button></div>
+    <div class="pick-list">${rows}</div>
+    ${shops.length > 1 ? `<div class="field-label">Laden</div>
+      <div class="pick-shops">${shops.map((x, i) => `<label class="filter-chip"><input type="radio" name="shop" value="${esc(x.name)}" ${i === 0 ? 'checked' : ''} />${esc(x.name)}</label>`).join('')}</div>` : ''}`;
+  openSheet('Auf die Einkaufsliste', inner, (f) => {
+    const picked = new Set(f.getAll('pick').map(Number));
+    const shop = f.get('shop') || defaultShop();
+    const add = [];
+    const skipped = [];
+    items.forEach((x, i) => {
+      if (picked.has(i)) add.push((f.get(`t${i}`) ?? x.text).trim());
+      else if (skip.has(normalize(x.text)) || !$(`#sheet-root .pick-row[data-i="${i}"]`)?.classList.contains('already')) skipped.push(normalize(x.text));
+    });
+    add.filter(Boolean).forEach((text) => addItem(text, { countUse: false, shop }));
+    saveShopSkips(n.id, skipped);
+    closeSheet();
+    const k = add.filter(Boolean).length;
+    toast(k ? `${k} ${k === 1 ? 'Sache' : 'Sachen'} auf die Einkaufsliste gesetzt` : 'Nichts hinzugefügt');
+  });
+  $('#sheet-root form').addEventListener('change', updatePickCount);
+  updatePickCount();
+}
+function updatePickCount() {
+  const k = document.querySelectorAll('#sheet-root [name="pick"]:checked').length;
+  const btn = $('#sheet-root .sheet-foot button');
+  if (!btn) return;
+  btn.textContent = k ? `${k} ${k === 1 ? 'Sache' : 'Sachen'} hinzufügen` : 'Nichts ausgewählt';
+  btn.disabled = !k;
 }
 
 /* ================= Suche ================= */
@@ -4887,9 +4953,28 @@ const actions = {
   },
   'note-to-shop': (d) => {
     const n = state.data.notes.find((x) => x.id === d.id);
-    const open = n ? rt.openChecks(noteHtml(n)).map((text) => ({ text })) : [];
-    open.forEach((x) => addItem(x.text, { countUse: false }));
-    toast(`${open.length} ${open.length === 1 ? 'Punkt' : 'Punkte'} auf die Einkaufsliste gesetzt`);
+    if (n) noteShopPicker(n);
+  },
+  'pick-edit': (d, el) => {
+    const row = el.closest('.pick-row');
+    const span = row.querySelector('.pick-text');
+    if (!span) return;
+    const inp = document.createElement('input');
+    inp.name = `t${row.dataset.i}`;
+    inp.value = span.textContent;
+    inp.className = 'pick-input';
+    span.replaceWith(inp);
+    el.remove();
+    row.querySelector('[name="pick"]').checked = true;
+    updatePickCount();
+    inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+  },
+  'pick-all': () => {
+    const boxes = [...document.querySelectorAll('#sheet-root [name="pick"]')];
+    const on = !boxes.every((x) => x.checked);
+    boxes.forEach((x) => (x.checked = on));
+    updatePickCount();
   },
   'note-edit-body': (d) => {
     state.noteEditing = d.id;

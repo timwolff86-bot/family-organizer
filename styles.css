@@ -5298,3 +5298,25 @@ details[open] > summary .sum-ic {
   font-size: 12px;
   height: 32px;
 }
+
+/* Notiz → Einkaufsliste: Auswahl */
+.pick-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px; }
+.pick-group { font-weight: 700; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 2px; }
+.pick-list { margin-bottom: 14px; }
+.pick-row { display: flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 6px 0; padding-right: 4px; }
+.pick-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 11px 12px; margin: 0; position: relative; cursor: pointer; font-size: 16px; }
+.pick-main input[type="checkbox"] { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.pick-box { width: 24px; height: 24px; flex: none; border-radius: 7px; border: 2px solid var(--line-strong, #bbb); display: grid; place-items: center; color: #fff; }
+.pick-box svg { width: 16px; height: 16px; opacity: 0; }
+.pick-main input[type="checkbox"]:checked + .pick-box { background: var(--accent); border-color: var(--accent); }
+.pick-main input[type="checkbox"]:checked + .pick-box svg { opacity: 1; }
+.pick-main input[type="checkbox"]:not(:checked) ~ .pick-text { color: var(--muted); }
+.pick-text { overflow-wrap: anywhere; }
+.pick-input { flex: 1; min-width: 0; font: inherit; font-size: 16px; border: 0; border-bottom: 2px solid var(--accent); border-radius: 0; background: transparent; padding: 2px 0; margin: 0; }
+.pick-tag { font-size: 12px; color: var(--muted); background: var(--accent-soft); padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.pick-pen { color: var(--muted); }
+.pick-shops { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick-shops label { position: relative; overflow: hidden; margin: 0; }
+.pick-shops input { position: absolute; opacity: 0; pointer-events: none; }
+.pick-shops label:has(input:checked) { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sheet-foot .btn:disabled { opacity: 0.45; }
