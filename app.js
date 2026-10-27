@@ -830,6 +830,12 @@ const nowHM = () => {
   const n = new Date();
   return `${D.pad(n.getHours())}:${D.pad(n.getMinutes())}`;
 };
+// Minuten zwischen zwei Uhrzeiten "HH:MM" (nur wenn das Ende danach liegt)
+const minutesBetween = (a, b) => {
+  if (!a || !b) return 0;
+  const m = (x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
+  return m(b) > m(a) ? m(b) - m(a) : 0;
+};
 const hmPlus = (hm, min) => {
   const [h, m] = hm.split(':').map(Number);
   const t = Math.min(h * 60 + m + min, 24 * 60 - 1);
@@ -3987,7 +3993,10 @@ function eventForm(ev, day, { copy = false } = {}) {
     },
     extra
   );
-  updateRepeatVisibility($('#sheet-root form'));
+  const formEl = $('#sheet-root form');
+  updateRepeatVisibility(formEl);
+  const d0 = minutesBetween(D.hm(ev.start_time), D.hm(ev.end_time));
+  if (d0) formEl.dataset.dur = d0;
 }
 
 // Abfrage beim Sichern eines Serientermins: wofür gilt die Änderung?
@@ -4555,9 +4564,10 @@ const actions = {
     const prevDate = last ? last.querySelector('[name="xd"]').value : form.elements.date_once.value;
     const prevS = last ? last.querySelector('[name="xs"]').value : form.elements.start_time.value;
     const prevE = last ? last.querySelector('[name="xe"]').value : form.elements.end_time.value;
+    const dur = (last && last.dataset.dur) || form.dataset.dur || minutesBetween(prevS, prevE) || '';
     box.insertAdjacentHTML(
       'beforeend',
-      `<div class="extra-date">
+      `<div class="extra-date" data-dur="${dur}">
         <label>Datum<input type="date" name="xd" value="${prevDate ? D.addDays(prevDate, 1) : ''}" /></label>
         <label>Beginn<input type="time" name="xs" value="${prevS}" /></label>
         <label>Ende<input type="time" name="xe" value="${prevE}" /></label>
@@ -5128,15 +5138,28 @@ document.addEventListener('change', async (e) => {
     to.min = next;
     if (!to.value || to.value <= el.value) to.value = next;
   }
-  // Weiteres Datum: auch dort Ende eine Stunde nach Beginn vorschlagen
-  if (el.name === 'xs' && el.value) {
-    const endEl = el.closest('.extra-date').querySelector('[name="xe"]');
-    if (!endEl.value || endEl.value <= el.value) endEl.value = hmPlus(el.value, 60);
+  // Dauer merken, sobald Beginn und Ende stehen (Haupttermin auf dem Formular, weitere Daten je Zeile)
+  if (el.name === 'end_time' && el.form) {
+    const d = minutesBetween(el.form.elements.start_time?.value, el.value);
+    if (d) el.form.dataset.dur = d;
   }
-  // Termin: Beginn gesetzt → Ende eine Stunde später vorschlagen (wenn leer oder davor)
+  if (el.name === 'xe') {
+    const row = el.closest('.extra-date');
+    const d = minutesBetween(row.querySelector('[name="xs"]').value, el.value);
+    if (d) row.dataset.dur = d;
+  }
+  // Weiteres Datum: Ende = Beginn + Dauer (wie zuletzt bzw. wie der erste Termin)
+  if (el.name === 'xs' && el.value) {
+    const row = el.closest('.extra-date');
+    const dur = Number(row.dataset.dur || el.form?.dataset.dur) || 60;
+    row.querySelector('[name="xe"]').value = hmPlus(el.value, dur);
+    row.dataset.dur = dur;
+  }
+  // Termin: Beginn geändert → Ende verschiebt sich mit, die Dauer bleibt (sonst 1 Stunde)
   if (el.name === 'start_time' && el.value && el.form?.elements.end_time && el.form.elements.repeat?.value !== 'multi') {
-    const endEl = el.form.elements.end_time;
-    if (!endEl.value || endEl.value <= el.value) endEl.value = hmPlus(el.value, 60);
+    const dur = Number(el.form.dataset.dur) || 60;
+    el.form.elements.end_time.value = hmPlus(el.value, dur);
+    el.form.dataset.dur = dur;
   }
   // Von "Ein Tag" auf "Mehrere Tage": gewähltes Datum als Beginn übernehmen
   if (el.name === 'repeat' && el.value === 'multi' && el.form.elements.date_once?.value && el.form.elements.date_from) {
