@@ -881,7 +881,7 @@ function flowRow(it) {
           ev.location ? `${ic('pin')}${esc(ev.location)}` : '',
           o.multi ? esc(rangeLabel(o)) : end && D.hm(ev.start_time) ? `bis ${end}` : '',
         ].filter(Boolean);
-    return `<div class="frow ${it.past ? 'past' : ''} ${o.cancelled ? 'off' : ''}">
+    return `<div class="frow ${o.cancelled ? 'off' : ''}">
       <button class="fr-open" data-action="edit-event" data-id="${ev.id}" data-day="${o.day}">
         <span class="fr-time">${esc(time)}</span>
         <span class="fr-body">
