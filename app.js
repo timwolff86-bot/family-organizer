@@ -3714,6 +3714,16 @@ document.addEventListener(
   },
   true
 );
+// Notiz-Ansicht antippen: Stelle merken, damit der Cursor im Editor genau dort steht
+document.addEventListener(
+  'click',
+  (e) => {
+    const box = e.target.closest?.('.note-text.rich:not(.editing)');
+    if (!box || e.target.closest('a, ul.checklist > li')) return;
+    state.noteCaret = rt.caretSpot(box, e.clientX, e.clientY);
+  },
+  true
+);
 // Feld mit Fokus nicht hinter dem Sichern-Knopf verstecken
 document.addEventListener('focusin', (e) => {
   if (!e.target.closest?.('.sheet') || !e.target.matches('input, textarea, select')) return;
@@ -4888,12 +4898,17 @@ const actions = {
     if (ed) {
       document.execCommand('defaultParagraphSeparator', false, 'p');
       ed.focus();
-      const r = document.createRange();
-      r.selectNodeContents(ed);
-      r.collapse(false);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(r);
+      // Cursor dorthin, wo in der Ansicht getippt wurde – sonst ans Ende
+      const spot = state.noteCaret;
+      state.noteCaret = null;
+      if (!rt.placeAtSpot(ed, spot)) {
+        const r = document.createRange();
+        r.selectNodeContents(ed);
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
     }
   },
   'note-done': () => {

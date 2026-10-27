@@ -273,3 +273,70 @@ export function resetChecks(body) {
 // Offene Punkte als Text (z. B. für die Einkaufsliste)
 export const openChecks = (body) =>
   checkItems(body).items.filter((li) => li.getAttribute('data-done') !== '1').map((li) => li.textContent.trim()).filter(Boolean);
+
+/* ---------- Cursor an die angetippte Stelle ---------- */
+
+// Ansicht und Editor haben dieselben Absätze (nur Links unterscheiden sich),
+// daher merken wir uns: welcher Absatz, wie viele Zeichen hinein.
+const BLOCKS = 'p, h2, h3, li, td, th, blockquote';
+
+function pointToCaret(x, y) {
+  if (document.caretPositionFromPoint) {
+    const p = document.caretPositionFromPoint(x, y);
+    return p && { node: p.offsetNode, offset: p.offset };
+  }
+  const r = document.caretRangeFromPoint?.(x, y);
+  return r && { node: r.startContainer, offset: r.startOffset };
+}
+
+function textBefore(block, node, offset) {
+  const walker = document.createTreeWalker(block, 4);
+  let n = 0;
+  while (walker.nextNode()) {
+    const t = walker.currentNode;
+    if (t === node) return n + offset;
+    // Cursor sitzt zwischen Elementen: alles Text davor zählen
+    if (node.nodeType === 1 && node.childNodes[offset] && (node.childNodes[offset] === t || node.childNodes[offset].contains(t))) return n;
+    n += t.nodeValue.length;
+  }
+  return n;
+}
+
+export function caretSpot(root, x, y) {
+  const c = pointToCaret(x, y);
+  if (!c || !root.contains(c.node)) return null;
+  const el = c.node.nodeType === 1 ? c.node : c.node.parentElement;
+  const block = el.closest(BLOCKS);
+  if (!block || !root.contains(block)) return null;
+  return { index: [...root.querySelectorAll(BLOCKS)].indexOf(block), chars: textBefore(block, c.node, c.offset) };
+}
+
+export function placeAtSpot(root, spot) {
+  const block = spot && root.querySelectorAll(BLOCKS)[spot.index];
+  if (!block) return false;
+  const walker = document.createTreeWalker(block, 4);
+  let left = spot.chars;
+  let last = null;
+  while (walker.nextNode()) {
+    const t = walker.currentNode;
+    last = t;
+    if (left <= t.nodeValue.length) {
+      const r = document.createRange();
+      r.setStart(t, left);
+      r.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return true;
+    }
+    left -= t.nodeValue.length;
+  }
+  if (last) {
+    const r = document.createRange();
+    r.setStart(last, last.nodeValue.length);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } else placeCaret(block); // leerer Absatz
+  return true;
+}
