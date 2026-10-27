@@ -5046,3 +5046,8 @@ details[open] > summary .sum-ic {
   text-decoration: line-through;
   color: var(--muted);
 }
+/* Abgesagt/ausgelassen: auch das Foto blass, damit der Blick nicht hängen bleibt */
+.frow.off .av-stack,
+.lrow.off .av-stack {
+  opacity: 0.4;
+}

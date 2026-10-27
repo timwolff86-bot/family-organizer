@@ -525,8 +525,8 @@ function eventsOn(day) {
     o.sort = o.time === 'Ganztägig' || o.time.startsWith('bis') ? '' : D.hm(ev.start_time) || '';
     out.push(o);
   }
-  // Ausgefallene Termine ans Ende
-  return out.sort((a, b) => a.cancelled - b.cancelled || a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
+  // Ausgefallenes bleibt an seiner Uhrzeit (durchgestrichen) – die Reihenfolge ändert sich nicht
+  return out.sort((a, b) => a.sort.localeCompare(b.sort) || a.ev.title.localeCompare(b.ev.title));
 }
 
 const daysBetween = (a, b) => Math.round((D.fromKey(b) - D.fromKey(a)) / 86400000);
@@ -857,7 +857,7 @@ function flowItems(day) {
   const w = wasteFlowItem(day);
   if (w) items.push(w);
   return items.sort(
-    (a, b) => !!a.off - !!b.off || a.sort.localeCompare(b.sort) || (a.type !== 'ev') - (b.type !== 'ev')
+    (a, b) => a.sort.localeCompare(b.sort) || (a.type !== 'ev') - (b.type !== 'ev')
   );
 }
 
@@ -907,7 +907,7 @@ function flowList(day) {
   if (lsGet('fo-nowline') === '1' && day === D.todayKey() && items.some((it) => it.sort)) {
     const now = nowHM();
     let i = items.findIndex((it) => !it.off && it.sort && it.sort > now);
-    if (i < 0) i = items.length - items.filter((it) => it.off).length;
+    if (i < 0) i = items.length;
     rows.splice(i, 0, `<div class="now-line" aria-label="Jetzt ${now}"><span>${now}</span></div>`);
   }
   return `<section><h2>Tagesablauf</h2><div class="card flow">${rows.join('')}</div></section>`;
@@ -1302,7 +1302,7 @@ function listDay(day) {
             html: lrow(esc(w.sort), `${ic('bell')}${esc(binsText(w.p.bins))} rausstellen`, wasteSettings().people || [], `rem waste ${w.p.put_out_at ? 'off' : ''}`),
           })),
         ]
-          .sort((a, b) => a.off - b.off || a.sort.localeCompare(b.sort) || !!a.rem - !!b.rem)
+          .sort((a, b) => a.sort.localeCompare(b.sort) || !!a.rem - !!b.rem)
           .map((r) => r.html)
           .join('')}
         ${open ? lrow('', `${ic('task')}${open} ${open === 1 ? 'Aufgabe' : 'Aufgaben'}`, [], 'tasks') : ''}
