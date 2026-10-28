@@ -36,6 +36,17 @@ export const uuid = () =>
         return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
       });
 
+/* ---------- Familienkonten (ab Update 21) ---------- */
+
+// Ist die Datenbank auf Familien umgestellt? Dann gilt "einmalig" (z. B. ein Essen pro Tag) je Familie.
+export let familyMode = false;
+export const setFamilyMode = (on) => {
+  familyMode = !!on;
+};
+const SCOPED = { meals: 'date', products: 'key', shops: 'name', app_settings: 'key', waste_pickups: 'date' };
+const conflictFor = (table, conflict) => (familyMode && SCOPED[table] === conflict ? `family_id,${conflict}` : conflict);
+const isNotFound = (error, status) => error?.code === '42P01' || error?.code === 'PGRST205' || error?.code === 'PGRST202' || status === 404;
+
 /* ---------- Supabase ---------- */
 
 let sb = null;
@@ -82,6 +93,63 @@ export async function invokeFunction(name, body) {
     throw err;
   }
   return data;
+}
+
+// Registrieren. data landet im Konto (Name, Einladungscode) und wird nach dem Bestätigen gebraucht.
+export async function signUp(email, password, data) {
+  const { data: res, error } = await sb.auth.signUp({
+    email,
+    password,
+    options: { data, emailRedirectTo: location.origin + location.pathname },
+  });
+  if (error) throw error;
+  return res; // { user, session } – session fehlt, wenn die E-Mail erst bestätigt werden muss
+}
+
+// Datenbank-Funktion aufrufen (Familie anlegen, beitreten, einladen …)
+export async function rpc(name, args = {}) {
+  const { data, error, status } = await sb.rpc(name, args);
+  if (error) {
+    const err = new Error(error.message);
+    err.code = error.code;
+    err.missing = isNotFound(error, status);
+    throw err;
+  }
+  return data;
+}
+
+// Familie des angemeldeten Nutzers. { legacy: true } = Datenbank noch ohne Familienkonten.
+export async function myFamily(userId) {
+  const fu = await sb.from('family_users').select('family_id, role').eq('user_id', userId).maybeSingle();
+  if (fu.error) {
+    if (isNotFound(fu.error, fu.status)) return { legacy: true };
+    throw fu.error;
+  }
+  if (!fu.data) return null;
+  const f = await sb.from('families').select('id, name, can_invite_families, created_by, created_at').eq('id', fu.data.family_id).maybeSingle();
+  if (f.error) throw f.error;
+  return { id: fu.data.family_id, role: fu.data.role, name: f.data?.name || 'Familie', canInviteFamilies: !!f.data?.can_invite_families, isNew: !!f.data?.created_by && Date.now() - new Date(f.data.created_at) < 30 * 86400000 };
+}
+
+// Wer kann sich in der Familie anmelden, welche Einladungen sind offen
+export async function familyAccounts() {
+  const { data, error } = await sb.from('family_users').select('user_id, email, role, created_at').order('created_at');
+  if (error) throw error;
+  return data;
+}
+export async function openInvites() {
+  const { data, error } = await sb
+    .from('invites')
+    .select('code, kind, note, expires_at, uses_left, created_at')
+    .gt('uses_left', 0)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+}
+export async function deleteInvite(code) {
+  const { error } = await sb.from('invites').delete().eq('code', code);
+  if (error) throw error;
 }
 
 export async function signOut() {
@@ -151,6 +219,19 @@ const ON_DELETE = {
 
 /* ---------- gemeinsame Schnittstelle ---------- */
 
+// Laufende Schreibvorgänge: ein gleichzeitiges Neuladen darf frisch Gespeichertes nicht überschreiben
+export const writes = { seq: 0, pending: 0 };
+async function tracked(fn) {
+  writes.seq++;
+  writes.pending++;
+  try {
+    return await fn();
+  } finally {
+    writes.pending--;
+    writes.seq++;
+  }
+}
+
 // Liefert alle Tabellen. missing: Tabellen, die es in der Datenbank (noch) nicht gibt.
 export async function loadAll() {
   if (!isCloud) return { ...localRead(), missing: [] };
@@ -187,12 +268,13 @@ export async function loadAll() {
 }
 
 // Viele Einträge auf einmal. ignoreDuplicates: vorhandene nicht überschreiben.
-export async function upsertMany(table, rows, conflict = 'id', ignoreDuplicates = false) {
+export const upsertMany = (...a) => tracked(() => upsertManyNow(...a));
+async function upsertManyNow(table, rows, conflict = 'id', ignoreDuplicates = false) {
   if (isCloud) {
     for (let i = 0; i < rows.length; i += 200) {
       const { error } = await sb
         .from(table)
-        .upsert(rows.slice(i, i + 200), { onConflict: conflict, ignoreDuplicates });
+        .upsert(rows.slice(i, i + 200), { onConflict: conflictFor(table, conflict), ignoreDuplicates });
       if (error) throw error;
     }
     return;
@@ -209,9 +291,15 @@ export async function upsertMany(table, rows, conflict = 'id', ignoreDuplicates 
 }
 
 // Legt an oder aktualisiert. conflict: Spalten, die einen Eintrag eindeutig machen.
-export async function upsert(table, row, conflict = 'id') {
+export const upsert = (...a) => tracked(() => upsertNow(...a));
+async function upsertNow(table, row, conflict = 'id') {
   if (isCloud) {
-    const { error } = await sb.from(table).upsert(row, { onConflict: conflict });
+    let { error } = await sb.from(table).upsert(row, { onConflict: conflictFor(table, conflict) });
+    // App war während des Datenbank-Updates offen: ab jetzt "je Familie" speichern
+    if (error?.code === '42P10' && !familyMode && SCOPED[table] === conflict) {
+      familyMode = true;
+      ({ error } = await sb.from(table).upsert(row, { onConflict: conflictFor(table, conflict) }));
+    }
     if (error) throw error;
     return;
   }
@@ -224,7 +312,8 @@ export async function upsert(table, row, conflict = 'id') {
   localWrite(data);
 }
 
-export async function remove(table, id) {
+export const remove = (...a) => tracked(() => removeNow(...a));
+async function removeNow(table, id) {
   if (isCloud) {
     const { error } = await sb.from(table).delete().eq('id', id);
     if (error) throw error;
@@ -237,4 +326,25 @@ export async function remove(table, id) {
     else data[t].forEach((r) => r[col] === id && (r[col] = null));
   }
   localWrite(data);
+}
+
+// Sicherung: alle Tabellen vollständig (ohne Datumsgrenze), seitenweise geladen
+export async function exportAll() {
+  if (!isCloud) return localRead();
+  const out = {};
+  for (const t of TABLES) {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from(t).select('*').range(from, from + 999);
+      if (error) {
+        const notFound = error.code === '42P01' || error.code === 'PGRST205';
+        if (notFound) break;
+        throw error;
+      }
+      rows.push(...data);
+      if (data.length < 1000) break;
+    }
+    out[t] = rows;
+  }
+  return out;
 }

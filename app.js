@@ -465,7 +465,15 @@ async function reload() {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await new Promise((r) => setTimeout(r, attempt * 2000));
       try {
+        const seq = store.writes.seq;
         const data = await store.loadAll();
+        // Während des Ladens wurde gespeichert: Stand ist evtl. veraltet → verwerfen und gleich neu laden
+        if (state.data && (store.writes.seq !== seq || store.writes.pending)) {
+          while (store.writes.pending) await new Promise((r) => setTimeout(r, 150));
+          loading.again = true;
+          lastErr = null;
+          break;
+        }
         // Einzelne Tabellen nicht geladen: alte Daten behalten
         for (const f of data.failed || []) data[f.table] = state.data?.[f.table] || [];
         state.data = data;
@@ -935,6 +943,33 @@ function mergeMissed(list) {
   return out;
 }
 
+// Neue Familie: erste Schritte, bis etwas eingetragen ist (oder ausgeblendet wurde)
+function startCard() {
+  if (!state.family?.isNew) return '';
+  const key = `fo-start-hidden-${state.family.id}`;
+  if (lsGet(key)) return '';
+  const d = state.data;
+  const has = { event: d.events.length > 0, task: d.tasks.length > 0, shop: d.shopping_items.length > 0, meal: d.meals.length > 0 };
+  // Nur für neue Familien: wer schon einiges eingetragen hat, sieht die Karte nie wieder
+  if (d.events.length + d.tasks.length >= 4 || (has.event && has.task && has.shop)) {
+    lsSet(key, '1');
+    return '';
+  }
+  const step = (done, action, icon, label, extra = '') =>
+    `<button class="start-step ${done ? 'done' : ''}" data-action="${action}" ${extra}><span class="start-check">${done ? ic('check') : icon}</span><span>${label}</span></button>`;
+  return `
+    <section class="card pad start-card">
+      <div class="start-head"><strong>Los geht's 👋</strong><button class="link small" data-action="start-hide">Ausblenden</button></div>
+      <p class="muted small">Ein paar Ideen für den Anfang:</p>
+      ${step(has.event, 'new-event', '📅', 'Ersten Termin eintragen')}
+      ${step(has.task, 'new-task', '✅', 'Aufgabe anlegen – z. B. „Zimmer aufräumen“ für ein Kind')}
+      ${step(has.shop, 'tab', '🛒', 'Einkaufsliste anfangen', 'data-tab="einkauf"')}
+      ${step(has.meal, 'tab', '🍝', 'Essen für die Woche planen', 'data-tab="kochbuch"')}
+      ${step(false, 'invite-new', '💌', 'Partner/in einladen', 'data-kind="join"')}
+      ${step(false, 'tab', '🔔', 'Benachrichtigungen einschalten (unter „Mehr“)', 'data-tab="mehr"')}
+    </section>`;
+}
+
 function viewHeute() {
   const day = state.date;
   const isToday = day === D.todayKey();
@@ -970,6 +1005,7 @@ function viewHeute() {
         .join('')}
     </div>
     ${notes.length ? `<div class="day-chips">${notes.join('')}</div>` : ''}
+    ${startCard()}
     ${flowList(day)}
 
     <section>
@@ -2319,6 +2355,7 @@ function viewMehr() {
           )
           .join('')}
       </ul>
+      ${familyEntry()}
     </section>
 
     <section>
@@ -2380,7 +2417,43 @@ function viewMehr() {
         <p class="muted small">Installieren – iPhone: in Safari „Teilen“ → „Zum Home-Bildschirm“. Android: Menü → „App installieren“.</p>
         ${store.isCloud && state.session ? `<p class="muted small">Angemeldet als ${esc(state.session.user.email)}</p><button class="btn ghost" data-action="logout">Abmelden</button>` : ''}
       </div>
+      <button class="card nav-row" data-action="backup">
+        <span class="nav-icon">💾</span>
+        <span class="grow-col"><span class="title">Daten sichern</span><span class="muted small">Alle Einträge als Datei speichern</span></span>
+        <span class="chev">${ic('right')}</span>
+      </button>
     </section>`;
+}
+
+// Sicherung als Datei: auf dem Handy über „Teilen“ (z. B. „In Dateien sichern“), sonst als Download
+async function backupData() {
+  toast('Sicherung wird erstellt …');
+  try {
+    const data = await store.exportAll();
+    const rows = Object.values(data).reduce((n, x) => n + (Array.isArray(x) ? x.length : 0), 0);
+    const payload = { app: 'familienplaner', version: 1, created_at: new Date().toISOString(), family: state.family?.name || null, data };
+    const name = `familienplaner-sicherung-${D.todayKey()}.json`;
+    const file = new File([JSON.stringify(payload)], name, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Familienplaner-Sicherung' });
+        return toast(`Sicherung mit ${rows} Einträgen erstellt`);
+      } catch (e) {
+        if (e?.name === 'AbortError') return toast('Sicherung abgebrochen');
+      }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast(`Sicherung mit ${rows} Einträgen gespeichert`);
+  } catch (e) {
+    console.error(e);
+    toast('Sicherung fehlgeschlagen. Bitte Internetverbindung prüfen.');
+  }
 }
 
 /* ================= Neuigkeiten (Aktivitäten) ================= */
@@ -3506,6 +3579,13 @@ function header() {
         </div>`
     );
   }
+  if (state.view === 'konto') {
+    return `
+      <header class="top sub">
+        <button class="icon-btn back" data-action="back" aria-label="Zurück">${ic('left')}<span>Mehr</span></button>
+      </header>
+      <div class="sub-title"><h1>Familienkonto</h1></div>`;
+  }
   if (state.view === 'abfall') {
     return `
       <header class="top sub">
@@ -3598,7 +3678,7 @@ function tabbar() {
   ];
   return `<nav class="tabbar">${tabs
     .map(
-      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege', 'notizen', 'notiz', 'abfall'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
+      ([k, i, l]) => `<button class="${state.view === k || (k === 'mehr' && ['geburtstage', 'eintraege', 'notizen', 'notiz', 'abfall', 'konto'].includes(state.view)) ? 'on' : ''}" data-action="tab" data-tab="${k}">
         <span class="ti">${icon(i)}</span><span>${l}</span></button>`
     )
     .join('')}</nav>`;
@@ -3619,19 +3699,23 @@ function render() {
     app.innerHTML = loginScreen();
     return;
   }
+  if (state.onb) {
+    app.innerHTML = onboardingScreen();
+    return;
+  }
   if (!state.data) {
     app.innerHTML = state.loadError
       ? `<div class="boot"><p>Daten konnten nicht geladen werden.</p><p class="muted small">Bitte Internetverbindung prüfen.</p><button class="btn primary" data-action="retry-load">Nochmal versuchen</button></div>`
       : '<div class="boot">Lädt …</div>';
     return;
   }
-  if (!meMember() && members().length) {
+  if (!meMember() && (members().length || state.family)) {
     app.innerHTML = whoScreen();
     return;
   }
 
   if (state.view === 'person' && !member(state.personId)) state.view = 'mehr';
-  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege, notizen: viewNotizen, notiz: viewNotiz, abfall: viewAbfall };
+  const views = { heute: viewHeute, woche: () => (state.cal === 'monat' ? viewMonat() : viewWoche()), kochbuch: viewKochbuch, einkauf: viewEinkauf, mehr: viewMehr, person: viewPerson, geburtstage: viewGeburtstage, eintraege: viewEintraege, notizen: viewNotizen, notiz: viewNotiz, abfall: viewAbfall, konto: viewKonto };
   const scroll = window.scrollY;
   app.innerHTML = `
     ${header()}
@@ -3654,18 +3738,493 @@ function render() {
   renderSearchResults(); // offene Suche aktuell halten
 }
 
+/* ================= Anmelden, Registrieren, Familie einrichten ================= */
+
+const cleanCode = (c) => String(c || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+const fmtCode = (c) => cleanCode(c).replace(/^(.{4})(.+)$/, '$1-$2');
+const inviteUrl = (code) => `${location.origin}${location.pathname}?einladung=${cleanCode(code)}`;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const userText = (text) => Object.assign(new Error(text), { userText: text });
+const FAMILY_ERRORS = {
+  invalid_code: 'Dieser Code ist ungültig, abgelaufen oder wurde schon benutzt.',
+  already_in_family: 'Du gehörst schon zu einer Familie.',
+  not_allowed: 'Das darfst du leider nicht.',
+  name_missing: 'Bitte einen Namen eingeben.',
+  no_family: 'Du gehörst noch zu keiner Familie.',
+  not_self: 'Deinen eigenen Zugang kannst du hier nicht entfernen.',
+};
+function errText(e, fallback = 'Das hat nicht geklappt. Bitte Internetverbindung prüfen.') {
+  if (e?.userText) return e.userText;
+  const m = String(e?.message || '');
+  for (const [k, t] of Object.entries(FAMILY_ERRORS)) if (m.includes(k)) return t;
+  if (/already registered|already exists/i.test(m)) return 'Für diese E-Mail gibt es schon ein Konto. Bitte melde dich an.';
+  if (/password/i.test(m) && /(at least|short|weak|characters)/i.test(m)) return 'Das Passwort ist zu kurz oder zu einfach (mindestens 8 Zeichen).';
+  if (/signups?.*(not allowed|disabled)/i.test(m)) return 'Neue Konten sind gerade nicht freigeschaltet.';
+  if (/invalid.*email|email.*invalid|unable to validate email/i.test(m)) return 'Bitte eine gültige E-Mail-Adresse eingeben.';
+  if (/rate limit|too many/i.test(m)) return 'Zu viele Versuche. Bitte in ein paar Minuten nochmal.';
+  if (/Invalid login credentials/i.test(m)) return 'E-Mail oder Passwort falsch.';
+  if (/Email not confirmed/i.test(m)) return 'Bitte bestätige zuerst deine E-Mail-Adresse (Link in der Mail).';
+  return fallback;
+}
+
+// Einladungslink geöffnet (…?einladung=ABCD2345): Code merken und gleich prüfen
+async function readInviteFromUrl() {
+  const q = new URLSearchParams(location.search);
+  const code = cleanCode(q.get('einladung'));
+  if (!code) return;
+  q.delete('einladung');
+  history.replaceState(null, '', location.pathname + (q.toString() ? `?${q}` : ''));
+  lsSet('fo-invite', code);
+  state.invite = { code, info: null };
+  state.authMode = 'register';
+  try {
+    state.invite.info = await store.rpc('invite_info', { p_code: code });
+  } catch {}
+}
+
 function loginScreen() {
-  return `
-    <div class="center-screen">
-      <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
-      <h1>Familienplaner</h1>
-      <form class="card pad login" data-form="login">
+  const mode = state.authMode || 'login';
+  const inv = state.invite?.info;
+  const banner = inv?.ok
+    ? `<div class="auth-banner">👋 ${
+        inv.kind === 'join'
+          ? `Du wurdest zu <strong>${esc(inv.family || 'einer Familie')}</strong> eingeladen. Erstelle dein Konto – danach seht ihr alles gemeinsam.`
+          : 'Du wurdest eingeladen, den Familienplaner mit deiner Familie zu nutzen. Erstelle zuerst dein Konto.'
+      }</div>`
+    : state.invite && inv && !inv.ok
+      ? `<div class="auth-banner warn">Dieser Einladungslink ist ungültig, abgelaufen oder wurde schon benutzt. Bitte frag nach einem neuen.</div>`
+      : '';
+  if (mode === 'mail')
+    return `
+    <div class="center-screen auth">
+      <div class="onb-emoji">📬</div>
+      <h1>Fast geschafft!</h1>
+      <p class="muted">Wir haben dir eine Mail an <strong>${esc(state.mailTo || '')}</strong> geschickt. Tippe auf den Link darin, um dein Konto zu bestätigen. Danach geht es hier weiter.</p>
+      <p class="muted small">Keine Mail? Schau auch im Spam-Ordner nach.</p>
+      <button class="btn primary wide" data-action="auth-mode" data-mode="login">Zur Anmeldung</button>
+    </div>`;
+  const form =
+    mode === 'register'
+      ? `<form class="card pad login" data-form="register">
+        <label>Vorname<input name="name" autocomplete="given-name" required maxlength="40" /></label>
+        <label>E-Mail<input name="email" type="email" autocomplete="email" required /></label>
+        <label>Passwort<input name="password" type="password" autocomplete="new-password" minlength="8" required />
+          <span class="muted small">mindestens 8 Zeichen</span></label>
+        <label>Einladungscode<input name="code" value="${esc(fmtCode(state.invite?.code || lsGet('fo-invite') || ''))}" placeholder="ABCD-2345" autocapitalize="characters" autocomplete="off" required /></label>
+        <button class="btn primary wide" type="submit">Konto erstellen</button>
+        <p class="error" id="login-error"></p>
+        <p class="muted small center">Den Code bekommst du von der Person, die dich einlädt.</p>
+      </form>`
+      : `<form class="card pad login" data-form="login">
         <label>E-Mail<input name="email" type="email" autocomplete="username" required /></label>
         <label>Passwort<input name="password" type="password" autocomplete="current-password" required /></label>
         <button class="btn primary wide" type="submit">Anmelden</button>
         <p class="error" id="login-error"></p>
-      </form>
+      </form>`;
+  return `
+    <div class="center-screen auth">
+      <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
+      <h1>Familienplaner</h1>
+      ${banner}
+      <div class="seg wide auth-seg">
+        <button class="${mode === 'login' ? 'on' : ''}" data-action="auth-mode" data-mode="login">Anmelden</button>
+        <button class="${mode === 'register' ? 'on' : ''}" data-action="auth-mode" data-mode="register">Neu registrieren</button>
+      </div>
+      ${form}
     </div>`;
+}
+
+// Nach dem Anmelden: Familie da? → App. Keine Familie → einrichten. Alte Datenbank → wie bisher.
+// Läuft nie doppelt (Anmelde-Ereignis und Formular können gleichzeitig auslösen).
+let entering = null;
+function enterApp() {
+  entering ||= enterAppNow().finally(() => (entering = null));
+  return entering;
+}
+async function enterAppNow() {
+  let fam;
+  try {
+    fam = await store.myFamily(state.session.user.id);
+  } catch (e) {
+    console.error(e);
+    state.data = null;
+    state.loadError = true;
+    return render();
+  }
+  state.onb = null;
+  if (fam?.legacy || !fam) {
+    state.family = null;
+    store.setFamilyMode(false);
+    if (fam?.legacy) return startData();
+    return startOnboarding();
+  }
+  state.family = fam;
+  store.setFamilyMode(true);
+  if (state.invite) {
+    toast(`Du bist schon bei ${fam.name} angemeldet.`);
+    state.invite = null;
+    lsSet('fo-invite', null);
+  }
+  return startData();
+}
+
+async function startOnboarding() {
+  const meta = state.session?.user?.user_metadata || {};
+  const code = state.invite?.code || meta.invite_code || lsGet('fo-invite') || '';
+  state.onb = { step: 'code', code, people: [{ name: meta.name || '', role: 'erwachsen' }] };
+  if (code) await checkOnbCode(code).catch(() => {});
+  render();
+}
+
+async function checkOnbCode(code) {
+  const o = state.onb;
+  o.error = '';
+  o.code = cleanCode(code);
+  const info = await store.rpc('invite_info', { p_code: o.code });
+  if (!info?.ok) {
+    o.step = 'code';
+    o.error = FAMILY_ERRORS.invalid_code;
+    return;
+  }
+  o.info = info;
+  o.step = info.kind === 'join' ? 'join' : 'name';
+}
+
+function onboardingScreen() {
+  const o = state.onb;
+  const nr = { name: 1, people: 2, land: 3 }[o.step];
+  const steps = nr ? `<div class="onb-steps" aria-label="Schritt ${nr} von 3">${[1, 2, 3].map((i) => `<span class="${i <= nr ? 'on' : ''}"></span>`).join('')}</div>` : '';
+  const back = (to) => `<button type="button" class="link onb-back" data-action="onb-back" data-to="${to}">${ic('left')}Zurück</button>`;
+  const err = `<p class="error">${esc(o.error || '')}</p>`;
+  let body = '';
+  if (o.step === 'code')
+    body = `
+      <div class="onb-emoji">🔑</div>
+      <h1>Einladungscode</h1>
+      <p class="muted">Den Code bekommst du von der Person, die dich eingeladen hat.</p>
+      <form class="card pad login" data-form="onb">
+        <label>Code<input name="code" value="${esc(fmtCode(o.code))}" placeholder="ABCD-2345" autocapitalize="characters" autocomplete="off" required /></label>
+        <button class="btn primary wide">Weiter</button>
+        ${err}
+      </form>`;
+  else if (o.step === 'join')
+    body = `
+      <div class="onb-emoji">🏡</div>
+      <h1>${esc(o.info?.family || 'Familie')} beitreten?</h1>
+      <p class="muted">Danach seht ihr alle Termine, Aufgaben, Listen und Notizen gemeinsam.</p>
+      <form class="onb-actions" data-form="onb">
+        <button class="btn primary wide">Beitreten</button>
+        <button type="button" class="link" data-action="onb-other-code">Anderen Code eingeben</button>
+        ${err}
+      </form>`;
+  else if (o.step === 'name')
+    body = `
+      <h1>Wie heißt eure Familie?</h1>
+      <p class="muted">So steht es in der App und in Einladungen.</p>
+      <form class="card pad login" data-form="onb">
+        <label>Familienname<input name="fname" value="${esc(o.fname ?? 'Familie ')}" placeholder="Familie Müller" maxlength="60" required /></label>
+        <button class="btn primary wide">Weiter</button>
+        ${err}
+      </form>`;
+  else if (o.step === 'people')
+    body = `
+      ${back('name')}
+      <h1>Wer gehört dazu?</h1>
+      <p class="muted">Alle, die im Kalender vorkommen sollen – auch Kinder ohne eigenes Handy.</p>
+      <form class="onb-form" data-form="onb">
+        <div class="onb-people">
+          ${o.people
+            .map(
+              (p, i) => `
+            <div class="card onb-person">
+              <div class="onb-person-top">
+                <input name="pn" value="${esc(p.name)}" placeholder="${i === 0 ? 'Dein Vorname' : 'Name'}" maxlength="40" aria-label="Name" />
+                ${i === 0 ? '<span class="tag soft">Du</span>' : `<button type="button" class="icon-btn" data-action="onb-remove-person" data-i="${i}" aria-label="Entfernen">${ic('close')}</button>`}
+              </div>
+              <div class="seg wide onb-role">
+                ${[
+                  ['erwachsen', 'Erwachsen'],
+                  ['kind', 'Kind'],
+                ]
+                  .map(([k, l]) => `<label><input type="radio" name="pr${i}" value="${k}" ${p.role === k ? 'checked' : ''} /><span>${l}</span></label>`)
+                  .join('')}
+              </div>
+            </div>`
+            )
+            .join('')}
+        </div>
+        <button type="button" class="btn ghost wide" data-action="onb-add-person">${ic('plus')}Weitere Person</button>
+        <button class="btn primary wide">Weiter</button>
+        ${err}
+        <p class="muted small center">Fotos und Farben kannst du später unter „Mehr“ ergänzen.</p>
+      </form>`;
+  else if (o.step === 'land')
+    body = `
+      ${back('people')}
+      <h1>Wo wohnt ihr?</h1>
+      <p class="muted">Damit Schulferien und Feiertage im Kalender stehen.</p>
+      <form class="card pad login" data-form="onb">
+        <label>Bundesland<select name="land">
+          <option value="">keine Ferien anzeigen</option>
+          ${STATES.map(([k, n]) => `<option value="${k}" ${k === (o.land ?? state.land) ? 'selected' : ''}>${n}</option>`).join('')}
+        </select></label>
+        <button class="btn primary wide">Fertig</button>
+        ${err}
+      </form>`;
+  else if (o.step === 'done')
+    body = `
+      <div class="onb-emoji">🎉</div>
+      <h1>Willkommen, ${esc(state.family?.name || '')}!</h1>
+      <p class="muted">Lade jetzt deine Partnerin oder deinen Partner ein – dann seht ihr alles gemeinsam.</p>
+      <div class="onb-actions">
+        <button class="btn primary wide" data-action="invite-new" data-kind="join">Partner/in einladen</button>
+        <button class="btn ghost wide" data-action="onb-finish">Zur App</button>
+      </div>
+      ${
+        isStandalone()
+          ? ''
+          : `<div class="card pad onb-tip"><strong>📱 Tipp:</strong> Leg die App auf den Home-Bildschirm.
+            iPhone: in Safari unten „Teilen“ → „Zum Home-Bildschirm“. Android: Menü → „App installieren“. Danach dort einmal anmelden.</div>`
+      }`;
+  return `
+    <div class="center-screen onb">
+      ${steps}
+      ${body}
+      <p class="muted small onb-foot">Angemeldet als ${esc(state.session?.user?.email || '')} · <button class="link" data-action="logout">Abmelden</button></p>
+    </div>`;
+}
+
+function readOnbPeople() {
+  return [...document.querySelectorAll('.onb-person')].map((row, i) => ({
+    name: row.querySelector('[name="pn"]').value.trim(),
+    role: row.querySelector(`[name="pr${i}"]:checked`)?.value || 'erwachsen',
+  }));
+}
+
+async function onbSubmit(f, form) {
+  const o = state.onb;
+  const btn = form.querySelector('button.primary');
+  if (btn) btn.disabled = true;
+  o.error = '';
+  try {
+    if (o.step === 'code') {
+      await checkOnbCode(f.get('code'));
+      return render();
+    }
+    if (o.step === 'join') {
+      try {
+        await store.rpc('join_family', { p_code: o.code });
+      } catch (e) {
+        if (!String(e.message).includes('already_in_family')) throw e;
+      }
+      lsSet('fo-invite', null);
+      state.invite = null;
+      await enterApp();
+      if (state.family) toast(`Willkommen bei ${state.family.name}!`);
+      return;
+    }
+    if (o.step === 'name') {
+      const name = f.get('fname').trim().replace(/\s+/g, ' ');
+      if (!name || /^familie$/i.test(name)) throw userText('Bitte euren Familiennamen eintragen, z. B. „Familie Müller“.');
+      o.fname = name;
+      o.step = 'people';
+      return render();
+    }
+    if (o.step === 'people') {
+      o.people = readOnbPeople();
+      if (!o.people[0].name) throw userText('Bitte deinen Vornamen eintragen.');
+      o.people = o.people.filter((p) => p.name);
+      o.step = 'land';
+      return render();
+    }
+    if (o.step === 'land') {
+      o.land = f.get('land');
+      return await finishFamily();
+    }
+  } catch (e) {
+    if (!e.userText) console.error(e);
+    o.error = errText(e);
+    if (btn) btn.disabled = false;
+    const p = form.querySelector('.error');
+    if (p) p.textContent = o.error;
+  }
+}
+
+// Familie anlegen, Personen eintragen, dieses Handy auf „Du“ stellen
+async function finishFamily() {
+  const o = state.onb;
+  try {
+    await store.rpc('create_family', { p_code: o.code, p_name: o.fname });
+  } catch (e) {
+    // Hat beim ersten Versuch schon geklappt (nur die Antwort ging verloren)
+    if (!String(e.message).includes('already_in_family')) throw e;
+  }
+  const fam = await store.myFamily(state.session.user.id);
+  if (!fam || fam.legacy) throw new Error('no_family');
+  state.family = fam;
+  store.setFamilyMode(true);
+  const ids = [];
+  for (const [i, p] of o.people.entries()) {
+    const row = { id: store.uuid(), name: p.name, role: p.role, color: COLORS[i % COLORS.length], sort: i, drives: p.role === 'erwachsen' };
+    await store.upsert('members', row);
+    ids.push(row.id);
+  }
+  state.me = ids[0];
+  lsSet('fo-me', ids[0]);
+  state.land = o.land;
+  lsSet('fo-land', o.land);
+  await store.upsert('app_settings', { key: 'land', value: { land: o.land } }, 'key').catch(() => {});
+  lsSet('fo-invite', null);
+  state.invite = null;
+  o.step = 'done';
+  render();
+}
+
+/* ---------- Mehr → Familienkonto ---------- */
+
+function familyEntry() {
+  if (!state.family) return '';
+  return `<button class="card nav-row" data-action="open-konto">
+    <span class="nav-icon">🔑</span>
+    <span class="grow-col"><span class="title">${esc(state.family.name)}</span><span class="muted small">Zugänge und Einladungen</span></span>
+    <span class="chev">${ic('right')}</span>
+  </button>`;
+}
+
+async function loadKonto() {
+  try {
+    const [accounts, invites] = await Promise.all([store.familyAccounts(), store.openInvites()]);
+    state.konto = { accounts, invites };
+  } catch (e) {
+    console.error(e);
+    state.konto = { error: true };
+  }
+  if (state.view === 'konto') render();
+}
+
+function viewKonto() {
+  const k = state.konto;
+  const me = state.session?.user?.id;
+  const owner = state.family?.role === 'owner';
+  if (!k) return '<p class="muted center">Lädt …</p>';
+  if (k.error) return `<div class="card pad"><p>Konnte nicht geladen werden.</p><button class="btn ghost" data-action="open-konto" data-reload="1">Nochmal versuchen</button></div>`;
+  const until = (x) => `gültig bis ${new Date(x.expires_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })}`;
+  const joinInv = k.invites.filter((x) => x.kind === 'join');
+  const famInv = k.invites.filter((x) => x.kind === 'family');
+  const invRow = (x) => `<li class="inv-row">
+      <span class="grow-col"><span class="inv-code">${esc(fmtCode(x.code))}</span><span class="muted small">${x.note ? `${esc(x.note)} · ` : ''}${until(x)}</span></span>
+      <button class="link" data-action="invite-share" data-code="${x.code}" data-kind="${x.kind}">Teilen</button>
+      <button class="link danger" data-action="invite-delete" data-code="${x.code}">Zurückziehen</button>
+    </li>`;
+  return `
+    <section>
+      <div class="card set-card">
+        <div class="set-row"><span class="grow-col"><span class="muted small">Name der Familie</span><span class="title">${esc(state.family.name)}</span></span>
+          <button class="link" data-action="family-rename">Ändern</button></div>
+      </div>
+    </section>
+    <section>
+      <h2>Wer sich anmelden kann</h2>
+      <ul class="card list">
+        ${k.accounts
+          .map(
+            (a) => `<li class="acc-row"><span class="nav-icon">👤</span>
+            <span class="grow-col"><span>${esc(a.email || 'ohne E-Mail')} ${a.user_id === me ? '<span class="tag soft">Du</span>' : ''}</span>
+            <span class="muted small">${a.role === 'owner' ? 'darf Zugänge verwalten' : 'Mitglied'}</span></span>
+            ${owner && a.user_id !== me ? `<button class="link danger" data-action="account-remove" data-id="${a.user_id}" data-email="${esc(a.email || '')}">Entfernen</button>` : ''}
+          </li>`
+          )
+          .join('')}
+      </ul>
+      <button class="btn primary wide" data-action="invite-new" data-kind="join">${ic('plus')}Partner/in einladen</button>
+      ${joinInv.length ? `<p class="field-label">Offene Einladungen</p><ul class="card list">${joinInv.map(invRow).join('')}</ul>` : ''}
+      <p class="muted small">Kinder-Handys brauchen kein eigenes Konto: mit einem Elternkonto anmelden und dann das Kind auswählen.</p>
+    </section>
+    ${
+      state.family.canInviteFamilies
+        ? `<section>
+      <h2>Andere Familien einladen</h2>
+      <p class="muted small">Die eingeladene Familie bekommt eigene, getrennte Daten und sieht nichts von euch.</p>
+      <button class="btn ghost wide" data-action="invite-new" data-kind="family">${ic('plus')}Neue Familie einladen</button>
+      ${famInv.length ? `<p class="field-label">Offene Einladungen</p><ul class="card list">${famInv.map(invRow).join('')}</ul>` : ''}
+    </section>`
+        : ''
+    }`;
+}
+
+// Einladung erzeugen: bei neuen Familien vorher fragen, für wen (zum Wiedererkennen)
+function inviteNew(kind) {
+  if (kind === 'family') {
+    return openSheet(
+      'Neue Familie einladen',
+      `<p class="muted">Die Familie legt mit dem Code ihr eigenes Konto an. Sie sieht nichts von euren Daten.</p>
+       <label>Für wen? <span class="muted small">(nur für dich zum Wiedererkennen)</span><input name="note" placeholder="z. B. Familie von Lars" maxlength="60" /></label>`,
+      (f) => createInvite('family', f.get('note')),
+      '',
+      { compact: true }
+    );
+  }
+  createInvite('join');
+}
+
+async function createInvite(kind, note = null) {
+  try {
+    const code = await store.rpc('create_invite', { p_kind: kind, p_note: note || null });
+    closeSheet();
+    inviteSheet(code, kind);
+    if (state.view === 'konto') loadKonto();
+  } catch (e) {
+    console.error(e);
+    toast(errText(e, 'Einladung konnte nicht erstellt werden.'));
+  }
+}
+
+function inviteText(code, kind) {
+  const url = inviteUrl(code);
+  return kind === 'join'
+    ? `Hallo! Komm in unseren Familienplaner (${state.family?.name || 'Familie'}), dann sehen wir Termine, Aufgaben und Einkauf gemeinsam.\n\nHier registrieren: ${url}\n\nEinladungscode, falls gefragt: ${fmtCode(code)}`
+    : `Hallo! Ich lade dich zum Familienplaner ein. Damit plant ihr Termine, Aufgaben, Essen und Einkauf als Familie.\n\nHier registrieren: ${url}\n\nEinladungscode, falls gefragt: ${fmtCode(code)}`;
+}
+
+function inviteSheet(code, kind) {
+  openSheet(
+    kind === 'join' ? 'Partner/in einladen' : 'Familie einladen',
+    `<p class="muted">${
+      kind === 'join'
+        ? 'Schick diesen Link per WhatsApp oder Mail. Wer sich damit registriert, landet direkt in eurer Familie.'
+        : 'Schick diesen Link. Damit wird ein Konto erstellt und eine eigene Familie angelegt.'
+    }</p>
+     <div class="invite-code" aria-label="Einladungscode">${esc(fmtCode(code))}</div>
+     <p class="muted small center">Nur einmal nutzbar · ${kind === 'join' ? '14' : '30'} Tage gültig</p>`,
+    () => shareInvite(code, kind),
+    `<button type="button" class="btn ghost wide" data-action="invite-copy" data-code="${code}" data-kind="${kind}">${ic('copy')}Text kopieren</button>`,
+    { compact: true }
+  );
+  const btn = $('#sheet-root .sheet-foot button');
+  if (btn) btn.textContent = 'Link teilen';
+}
+
+async function shareInvite(code, kind) {
+  const text = inviteText(code, kind);
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      closeSheet();
+      return;
+    } catch (e) {
+      if (e?.name === 'AbortError') return;
+    }
+  }
+  copyText(text);
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Kopiert – jetzt z. B. in WhatsApp einfügen');
+  } catch {
+    toast('Kopieren ging nicht. Bitte den Code abschreiben.');
+  }
 }
 
 function whoScreen() {
@@ -3681,6 +4240,7 @@ function whoScreen() {
           .map((m) => `<button class="btn big" style="--c:${esc(m.color)}" data-action="set-me" data-id="${m.id}">${avatar(m)}${esc(m.name)}</button>`)
           .join('')}
       </div>
+      ${state.family ? `<button class="btn ghost wide who-new" data-action="who-new">${ic('plus')}${ms.length ? 'Ich bin noch nicht dabei' : 'Mich eintragen'}</button>` : ''}
     </div>`;
 }
 
@@ -4456,9 +5016,9 @@ function birthdayForm(b) {
   );
 }
 
-function memberForm(m) {
+function memberForm(m, { role = 'kind', onSaved = null } = {}) {
   const isNew = !m;
-  m ||= { role: 'kind', drives: false, color: COLORS[members().length % COLORS.length], sort: members().length };
+  m ||= { role, drives: false, color: COLORS[members().length % COLORS.length], sort: members().length };
   const inner = `
     <div class="avatar-edit">
       <div id="avatar-preview">${avatar(m, 'big')}</div>
@@ -4491,6 +5051,10 @@ function memberForm(m) {
       if ($('#avatar-value').dataset.changed) row.avatar = f.get('avatar') || null;
       saveConfirm('members', row, 'person', isNew);
       closeSheet();
+      if (onSaved) {
+        onSaved(row.id);
+        render();
+      }
     },
     extra
   );
@@ -4799,7 +5363,7 @@ const actions = {
   },
   back: () => {
     if (navBack()) return;
-    state.view = state.view === 'notiz' ? 'notizen' : ['geburtstage', 'eintraege', 'notizen', 'abfall'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
+    state.view = state.view === 'notiz' ? 'notizen' : ['geburtstage', 'eintraege', 'notizen', 'abfall', 'konto'].includes(state.view) ? 'mehr' : state.prevView || 'heute';
     state.noteEditing = null;
     window.scrollTo(0, 0);
     render();
@@ -4885,10 +5449,12 @@ const actions = {
     removeWithUndo('tasks', old.map((t) => t.id), `${old.length} Müll-Erinnerungen übernommen`);
   },
   activities: () => openActivities(),
+  backup: () => backupData(),
   'retry-load': () => {
     state.loadError = false;
     render();
-    startData();
+    if (store.isCloud && state.session) enterApp();
+    else startData();
   },
   'act-filter': (d) => {
     const f = { mine: false, own: false, ...state.actFilter };
@@ -5166,8 +5732,113 @@ const actions = {
     await store.signOut();
     state.session = null;
     state.data = null;
+    state.family = null;
+    state.onb = null;
+    state.konto = null;
+    state.authMode = 'login';
+    state.view = 'heute';
+    state.date = D.todayKey();
+    nav.stack = [];
+    store.setFamilyMode(false);
     render();
   },
+  'start-hide': () => {
+    lsSet(`fo-start-hidden-${state.family.id}`, '1');
+    render();
+  },
+  'auth-mode': (d) => {
+    state.authMode = d.mode;
+    render();
+  },
+  'onb-add-person': () => {
+    state.onb.people = readOnbPeople();
+    state.onb.people.push({ name: '', role: 'kind' });
+    render();
+    [...document.querySelectorAll('.onb-person [name="pn"]')].pop()?.focus();
+  },
+  'onb-remove-person': (d) => {
+    state.onb.people = readOnbPeople();
+    state.onb.people.splice(Number(d.i), 1);
+    render();
+  },
+  'onb-back': (d) => {
+    if (state.onb.step === 'people') state.onb.people = readOnbPeople();
+    state.onb.step = d.to;
+    state.onb.error = '';
+    render();
+  },
+  'onb-other-code': () => {
+    Object.assign(state.onb, { step: 'code', code: '', error: '' });
+    render();
+  },
+  'onb-finish': () => {
+    state.onb = null;
+    state.view = 'heute';
+    state.date = D.todayKey();
+    render();
+    startData();
+  },
+  'who-new': () =>
+    memberForm(null, {
+      role: 'erwachsen',
+      onSaved: (id) => {
+        state.me = id;
+        lsSet('fo-me', id);
+        refreshPush();
+      },
+    }),
+  'open-konto': (d) => {
+    if (!d.reload) {
+      navPush();
+      state.view = 'konto';
+      window.scrollTo(0, 0);
+    }
+    state.konto = null;
+    render();
+    loadKonto();
+  },
+  'invite-new': (d) => inviteNew(d.kind),
+  'invite-share': (d) => inviteSheet(d.code, d.kind),
+  'invite-copy': (d) => copyText(inviteText(d.code, d.kind)),
+  'invite-delete': async (d) => {
+    if (!confirm(`Einladung ${fmtCode(d.code)} zurückziehen? Der Code funktioniert dann nicht mehr.`)) return;
+    try {
+      await store.deleteInvite(d.code);
+      toast('Einladung zurückgezogen');
+    } catch (e) {
+      toast(errText(e));
+    }
+    loadKonto();
+  },
+  'account-remove': async (d) => {
+    if (!confirm(`Zugang von ${d.email || 'dieser Person'} entfernen? Sie kann sich danach nicht mehr bei ${state.family.name} anmelden.`)) return;
+    try {
+      await store.rpc('remove_family_user', { p_user: d.id });
+      toast('Zugang entfernt');
+    } catch (e) {
+      toast(errText(e));
+    }
+    loadKonto();
+  },
+  'family-rename': () =>
+    openSheet(
+      'Familie umbenennen',
+      `<label>Name der Familie<input name="title" value="${esc(state.family.name)}" maxlength="60" required /></label>`,
+      async (f) => {
+        const name = f.get('title').trim();
+        if (!name) return;
+        try {
+          await store.rpc('rename_family', { p_name: name });
+          state.family.name = name;
+          closeSheet();
+          render();
+        } catch (e) {
+          toast(errText(e));
+        }
+      },
+      '',
+      { compact: true }
+    ),
 };
 
 function changeDay(n) {
@@ -5500,15 +6171,58 @@ document.addEventListener('submit', async (e) => {
   if (kind === 'login') {
     const btn = form.querySelector('button');
     btn.disabled = true;
+    document.activeElement?.blur();
     try {
       await store.signIn(f.get('email').trim(), f.get('password'));
       state.session = await store.getSession();
-      await startData();
+      state.authMode = null;
+      await enterApp();
     } catch (err) {
-      $('#login-error').textContent =
-        err?.message === 'Invalid login credentials' ? 'E-Mail oder Passwort falsch.' : 'Anmeldung fehlgeschlagen.';
+      $('#login-error').textContent = errText(err, 'Anmeldung fehlgeschlagen. Bitte Internetverbindung prüfen.');
       btn.disabled = false;
     }
+  }
+
+  if (kind === 'register') {
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    document.activeElement?.blur();
+    $('#login-error').textContent = '';
+    const name = f.get('name').trim();
+    const email = f.get('email').trim();
+    const password = f.get('password');
+    const code = cleanCode(f.get('code'));
+    try {
+      if (password.length < 8) throw userText('Das Passwort ist zu kurz (mindestens 8 Zeichen).');
+      let info;
+      try {
+        info = await store.rpc('invite_info', { p_code: code });
+      } catch (e) {
+        if (e.missing) throw userText('Neue Konten sind gerade nicht freigeschaltet.');
+        throw e;
+      }
+      if (!info?.ok) throw new Error('invalid_code');
+      lsSet('fo-invite', code);
+      const res = await store.signUp(email, password, { name, invite_code: code });
+      if (res.session) {
+        state.session = res.session;
+        state.authMode = null;
+        await enterApp();
+      } else {
+        state.authMode = 'mail';
+        state.mailTo = email;
+        render();
+      }
+    } catch (err) {
+      if (!err.userText) console.error(err);
+      $('#login-error').textContent = errText(err, 'Registrierung fehlgeschlagen. Bitte Internetverbindung prüfen.');
+      btn.disabled = false;
+    }
+  }
+
+  if (kind === 'onb') {
+    document.activeElement?.blur();
+    await onbSubmit(f, form);
   }
 });
 
@@ -5649,7 +6363,7 @@ document.addEventListener('visibilitychange', () => {
 /* ================= Erster Start ================= */
 
 async function seedIfEmpty() {
-  if (state.data.members.length) return;
+  if (state.family || state.data.members.length) return; // neue Familien legen ihre Personen selbst an
   const ids = {};
   const people = [
     ['papa', 'Papa', 'erwachsen', false, COLORS[0]],
@@ -5681,6 +6395,7 @@ async function seedIfEmpty() {
 // Produktkatalog einmalig in die Datenbank schreiben (läuft im Hintergrund)
 // Start-Kataloge in die Datenbank schreiben (läuft im Hintergrund):
 // Produkte: fehlende ergänzen. Rezepte: nur, wenn das Kochbuch noch leer ist.
+const recipesSeededKey = () => (state.family ? `fo-recipes-seeded-${state.family.id}` : 'fo-recipes-seeded');
 async function seedCatalogs() {
   if (!state.data.missing?.includes('products')) {
     const have = new Set(state.data.products.map((p) => p.key));
@@ -5696,12 +6411,12 @@ async function seedCatalogs() {
       }
     }
   }
-  if (!state.data.missing?.includes('recipes') && !state.data.recipes.length && !lsGet('fo-recipes-seeded')) {
+  if (!state.data.missing?.includes('recipes') && !state.data.recipes.length && !lsGet(recipesSeededKey())) {
     const rows = SEED_RECIPES.map((r) => ({ id: store.uuid(), ...r, favorite: false, own: false }));
     state.data.recipes.push(...rows);
     try {
       await store.upsertMany('recipes', rows);
-      lsSet('fo-recipes-seeded', '1');
+      lsSet(recipesSeededKey(), '1');
     } catch (e) {
       console.error(e);
     }
@@ -5727,6 +6442,9 @@ async function startData() {
     }
     seedCatalogs();
   }
+  // Bundesland der Familie übernehmen, solange auf diesem Handy keins gewählt wurde
+  const famLand = (state.data.app_settings || []).find((x) => x.key === 'land')?.value?.land;
+  if (lsGet('fo-land') == null && famLand != null) state.land = famLand;
   refreshSchoolHolidays(state.land).then((changed) => changed && render());
   startLive();
   render();
@@ -5815,17 +6533,25 @@ async function boot() {
   try {
     if (store.isCloud) {
       await store.initCloud();
+      await readInviteFromUrl();
       state.session = await store.getSession();
       store.onAuthChange((event, session) => {
         if (event === 'SIGNED_OUT') {
           state.session = null;
           state.data = null;
+          state.family = null;
+          state.onb = null;
+          store.setFamilyMode(false);
           render();
         } else if (session) {
+          const fresh = !state.session;
           state.session = session;
+          // Nach dem Bestätigungslink aus der Mail: angemeldet, aber App noch nicht gestartet
+          if (fresh && !state.data && !state.onb) enterApp();
         }
       });
       if (!state.session) return render();
+      return await enterApp();
     }
     await startData();
   } catch (e) {

@@ -337,15 +337,33 @@ async function loadData(): Promise<Data> {
   const since = addDays(berlin(new Date()).day, -MISSED_DAYS - 1);
   const optional = (path: string) => db(path).catch(() => []); // Tabelle fehlt noch (Update 16) → leer
   const [members, events, event_occurrences, tasks, task_completions, waste_pickups, app_settings] = await Promise.all([
-    db('members?select=id,name,role'),
+    db('members?select=id,name,role,family_id').catch(() => db('members?select=id,name,role')), // family_id ab Update 21
     db('events?select=*'),
-    db(`event_occurrences?select=event_id,date,cancelled&date=gte.${since}`),
+    db(`event_occurrences?select=*&date=gte.${since}`),
     db('tasks?select=*'),
-    db(`task_completions?select=task_id,date&date=gte.${since}`),
+    db(`task_completions?select=*&date=gte.${since}`),
     optional(`waste_pickups?select=*&date=gte.${since}`),
-    optional('app_settings?select=key,value'),
+    optional('app_settings?select=*'),
   ]);
   return { members, events, event_occurrences, tasks, task_completions, waste_pickups, app_settings };
+}
+
+// Familienkonten (Update 21): jedes Gerät sieht nur die Daten seiner eigenen Familie
+export function familyData(data: Data, familyId: string | undefined | null, cache = new Map<string, Data>()): Data {
+  if (!familyId) return data; // vor Update 21: nur eine Familie
+  if (!cache.has(familyId)) {
+    const only = (rows?: Row[]) => (rows || []).filter((r) => r.family_id === familyId);
+    cache.set(familyId, {
+      members: only(data.members),
+      events: only(data.events),
+      event_occurrences: only(data.event_occurrences),
+      tasks: only(data.tasks),
+      task_completions: only(data.task_completions),
+      waste_pickups: only(data.waste_pickups),
+      app_settings: only(data.app_settings),
+    });
+  }
+  return cache.get(familyId)!;
 }
 
 export async function runOnce(now = new Date()) {
@@ -356,8 +374,9 @@ export async function runOnce(now = new Date()) {
   ]);
   const sent = new Set((log as Row[]).map((r) => r.key));
   let count = 0;
+  const families = new Map<string, Data>();
   for (const sub of subs) {
-    for (const [key, msg] of dueFor(sub, data, now)) {
+    for (const [key, msg] of dueFor(sub, familyData(data, (sub as Row).family_id as string, families), now)) {
       if (sent.has(key)) continue;
       sent.add(key);
       // erst vormerken, dann senden: lieber eine Nachricht verlieren als doppelt schicken
