@@ -2430,11 +2430,19 @@ function viewMehr() {
         }
         ${
           store.isCloud && state.session
+            ? `<li><button data-action="change-password"><span class="menu-ic">🔒</span>
+          <span class="grow-col"><span>Passwort ändern</span></span>
+          <span class="chev">${ic('right')}</span></button></li>`
+            : ''
+        }
+        ${
+          store.isCloud && state.session
             ? `<li><button data-action="logout"><span class="menu-ic">🚪</span>
           <span class="grow-col"><span class="danger-text">Abmelden</span><span class="muted small">Angemeldet als ${esc(state.session.user.email)}</span></span></button></li>`
             : `<li class="menu-info"><span class="menu-ic">📱</span><span class="grow-col"><span>Lokaler Modus</span><span class="muted small">Daten liegen nur auf diesem Gerät.</span></span></li>`
         }
       </ul>
+      ${state.family ? '<button class="link danger del-link" data-action="account-delete">Konto löschen</button>' : ''}
     </section>`;
 }
 
@@ -3708,6 +3716,10 @@ function render() {
   }
   state.pendingRender = false;
 
+  if (state.recovery && state.session) {
+    app.innerHTML = recoveryScreen();
+    return;
+  }
   if (store.isCloud && !state.session) {
     app.innerHTML = loginScreen();
     return;
@@ -3776,6 +3788,7 @@ function errText(e, fallback = 'Das hat nicht geklappt. Bitte Internetverbindung
   if (/invalid.*email|email.*invalid|unable to validate email/i.test(m)) return 'Bitte eine gültige E-Mail-Adresse eingeben.';
   if (/rate limit|too many/i.test(m)) return 'Zu viele Versuche. Bitte in ein paar Minuten nochmal.';
   if (/Invalid login credentials/i.test(m)) return 'E-Mail oder Passwort falsch.';
+  if (/different from the old password/i.test(m)) return 'Das ist dein bisheriges Passwort. Bitte wähle ein neues.';
   if (/Email not confirmed/i.test(m)) return 'Bitte bestätige zuerst deine E-Mail-Adresse (Link in der Mail).';
   return fallback;
 }
@@ -3811,6 +3824,31 @@ function loginScreen() {
     : state.invite && inv && !inv.ok
       ? `<div class="auth-banner warn">Dieser Einladungslink ist ungültig, abgelaufen oder wurde schon benutzt. Bitte frag nach einem neuen.</div>`
       : '';
+  const notice = state.authNotice ? `<div class="auth-banner ${state.authNotice.warn ? 'warn' : ''}">${esc(state.authNotice.text)}</div>` : '';
+  if (mode === 'forgot')
+    return `
+    <div class="center-screen auth">
+      <div class="onb-emoji">🔑</div>
+      <h1>Passwort vergessen?</h1>
+      ${notice}
+      <p class="muted">Gib deine E-Mail-Adresse ein. Wir schicken dir einen Link, mit dem du ein neues Passwort festlegst.</p>
+      <form class="card pad login" data-form="forgot">
+        <label>E-Mail<input name="email" type="email" autocomplete="username" value="${esc(state.mailTo || '')}" required /></label>
+        <button class="btn primary wide" type="submit">Link schicken</button>
+        <p class="error" id="login-error"></p>
+      </form>
+      <button class="link" data-action="auth-mode" data-mode="login">Zurück zur Anmeldung</button>
+    </div>`;
+  if (mode === 'forgot-sent')
+    return `
+    <div class="center-screen auth">
+      <div class="onb-emoji">📬</div>
+      <h1>Schau in dein Postfach</h1>
+      <p class="muted">Wenn es zu <strong>${esc(state.mailTo || '')}</strong> ein Konto gibt, ist jetzt eine Mail unterwegs. Tippe auf den Link darin – er ist eine Stunde gültig.</p>
+      <p class="muted small">Keine Mail da? Schau im Spam-Ordner nach oder fordere in ein paar Minuten einen neuen Link an.</p>
+      <button class="btn primary wide" data-action="auth-mode" data-mode="login">Zur Anmeldung</button>
+      <button class="link" data-action="auth-mode" data-mode="forgot">Neuen Link anfordern</button>
+    </div>`;
   if (mode === 'mail')
     return `
     <div class="center-screen auth">
@@ -3837,18 +3875,110 @@ function loginScreen() {
         <label>Passwort<input name="password" type="password" autocomplete="current-password" required /></label>
         <button class="btn primary wide" type="submit">Anmelden</button>
         <p class="error" id="login-error"></p>
+        <button type="button" class="link center-link" data-action="auth-mode" data-mode="forgot">Passwort vergessen?</button>
       </form>`;
   return `
     <div class="center-screen auth">
       <img class="logo-img" src="icons/icon-192.png" alt="" width="96" height="96" />
       <h1>Familienplaner</h1>
       ${banner}
+      ${notice}
       <div class="seg wide auth-seg">
         <button class="${mode === 'login' ? 'on' : ''}" data-action="auth-mode" data-mode="login">Anmelden</button>
         <button class="${mode === 'register' ? 'on' : ''}" data-action="auth-mode" data-mode="register">Neu registrieren</button>
       </div>
       ${form}
     </div>`;
+}
+
+// Neues Passwort festlegen (nach dem Link aus der Mail)
+function recoveryScreen() {
+  if (state.recovery === 'done')
+    return `
+    <div class="center-screen auth">
+      <div class="onb-emoji">✅</div>
+      <h1>Passwort geändert</h1>
+      ${
+        isStandalone()
+          ? ''
+          : '<p class="muted">Hast du die App auf dem Home-Bildschirm? Dann öffne sie jetzt dort und melde dich mit dem neuen Passwort an.</p>'
+      }
+      <button class="btn primary wide" data-action="recovery-done">${isStandalone() ? 'Weiter zur App' : 'Hier weiter'}</button>
+    </div>`;
+  return `
+    <div class="center-screen auth">
+      <div class="onb-emoji">🔒</div>
+      <h1>Neues Passwort</h1>
+      <p class="muted">für ${esc(state.session?.user?.email || '')}</p>
+      <form class="card pad login" data-form="newpw">
+        ${newPasswordField()}
+        <button class="btn primary wide" type="submit">Passwort speichern</button>
+        <p class="error"></p>
+      </form>
+    </div>`;
+}
+const newPasswordField = () => `
+  <label>Neues Passwort
+    <span class="pw-wrap"><input name="password" type="password" autocomplete="new-password" minlength="8" required />
+    <button type="button" class="link small" data-action="pw-show">anzeigen</button></span>
+    <span class="muted small">mindestens 8 Zeichen</span></label>`;
+
+function passwordSheet() {
+  openSheet('Passwort ändern', `<div class="login">${newPasswordField()}<p class="error"></p></div>`, null, '', { compact: true });
+  const form = $('#sheet-root form');
+  form.dataset.form = 'newpw';
+  form.querySelector('.sheet-foot button').textContent = 'Passwort speichern';
+  setTimeout(() => form.querySelector('[name="password"]').focus(), 50);
+}
+
+// Konto löschen: klar sagen, was passiert – und vorher sichern anbieten
+async function accountDeleteSheet() {
+  let accounts;
+  try {
+    accounts = await store.familyAccounts();
+  } catch (e) {
+    return toast(errText(e));
+  }
+  const others = accounts.filter((a) => a.user_id !== state.session.user.id);
+  const fam = esc(state.family.name);
+  const what = others.length
+    ? `<p>Dein Zugang zu <strong>${fam}</strong> wird gelöscht. Du kannst dich danach nicht mehr anmelden.</p>
+       <p class="muted">Die Familiendaten bleiben erhalten – für ${others.map((a) => esc(a.email || 'die anderen')).join(', ')}.</p>`
+    : `<p>Du bist der einzige Zugang von <strong>${fam}</strong>.</p>
+       <div class="auth-banner warn">Deshalb werden <strong>alle Daten der Familie endgültig gelöscht</strong>: Termine, Aufgaben, Einkauf, Essen, Rezepte, Notizen, Fotos. Das lässt sich nicht rückgängig machen.</div>
+       <button type="button" class="btn ghost wide" data-action="backup">💾 Vorher Daten sichern</button>`;
+  openSheet(
+    'Konto löschen',
+    `<div class="del-account">${what}
+      <label><span>Zum Bestätigen <strong>LÖSCHEN</strong> eintippen</span><input name="confirm" autocomplete="off" autocapitalize="characters" /></label>
+      <p class="error"></p></div>`,
+    async (f) => {
+      if (f.get('confirm').trim().toUpperCase() !== 'LÖSCHEN') return;
+      const btn = $('#sheet-root .sheet-foot button');
+      btn.disabled = true;
+      try {
+        await store.rpc('delete_my_account');
+      } catch (e) {
+        btn.disabled = false;
+        $('#sheet-root .del-account .error').textContent = errText(e, 'Das Konto konnte nicht gelöscht werden. Bitte nochmal versuchen.');
+        return;
+      }
+      closeSheet();
+      for (const k of ['fo-me', 'fo-invite', `fo-start-hidden-${state.family.id}`, `fo-recipes-seeded-${state.family.id}`]) lsSet(k, null);
+      await store.signOut('local');
+      Object.assign(state, { session: null, data: null, family: null, onb: null, konto: null, me: null, authMode: 'login', view: 'heute' });
+      store.setFamilyMode(false);
+      state.authNotice = { text: others.length ? 'Dein Konto wurde gelöscht.' : 'Dein Konto und alle Daten der Familie wurden gelöscht.' };
+      render();
+    },
+    '',
+    { compact: true }
+  );
+  const btn = $('#sheet-root .sheet-foot button');
+  btn.textContent = others.length ? 'Mein Konto löschen' : 'Konto und Familie löschen';
+  btn.classList.replace('primary', 'danger-fill');
+  btn.disabled = true;
+  $('#sheet-root [name="confirm"]').addEventListener('input', (e) => (btn.disabled = e.target.value.trim().toUpperCase() !== 'LÖSCHEN'));
 }
 
 // Nach dem Anmelden: Familie da? → App. Keine Familie → einrichten. Alte Datenbank → wie bisher.
@@ -5793,9 +5923,24 @@ const actions = {
     render();
   },
   'auth-mode': (d) => {
+    // eingegebene E-Mail mitnehmen (z. B. von Anmelden zu „Passwort vergessen“)
+    const typed = $('#app [name="email"]')?.value?.trim();
+    if (typed) state.mailTo = typed;
     state.authMode = d.mode;
+    state.authNotice = null;
     render();
   },
+  'pw-show': (d, el) => {
+    const input = el.closest('form').querySelector('[name="password"]');
+    input.type = input.type === 'password' ? 'text' : 'password';
+    el.textContent = input.type === 'password' ? 'anzeigen' : 'verbergen';
+  },
+  'recovery-done': () => {
+    state.recovery = null;
+    enterApp();
+  },
+  'change-password': () => passwordSheet(),
+  'account-delete': () => accountDeleteSheet(),
   'onb-add-person': () => {
     state.onb.people = readOnbPeople();
     const used = new Set(state.onb.people.map((x) => x.color));
@@ -6283,6 +6428,47 @@ document.addEventListener('submit', async (e) => {
     }
   }
 
+  if (kind === 'forgot') {
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    document.activeElement?.blur();
+    const email = f.get('email').trim();
+    try {
+      await store.resetPassword(email);
+      state.mailTo = email;
+      state.authMode = 'forgot-sent';
+      state.authNotice = null;
+      render();
+    } catch (err) {
+      console.error(err);
+      $('#login-error').textContent = errText(err, 'Das hat nicht geklappt. Bitte Internetverbindung prüfen und nochmal versuchen.');
+      btn.disabled = false;
+    }
+  }
+
+  if (kind === 'newpw') {
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    document.activeElement?.blur();
+    const password = f.get('password');
+    try {
+      if (password.length < 8) throw userText('Das Passwort ist zu kurz (mindestens 8 Zeichen).');
+      await store.updatePassword(password);
+      if (state.recovery) {
+        // Auf dem iPhone öffnet der Mail-Link Safari, nicht die App vom Home-Bildschirm
+        state.recovery = 'done';
+        render();
+      } else {
+        closeSheet();
+        toast('Passwort geändert');
+      }
+    } catch (err) {
+      if (!err.userText) console.error(err);
+      form.querySelector('.error').textContent = errText(err, 'Das Passwort konnte nicht gespeichert werden. Bitte nochmal versuchen.');
+      btn.disabled = false;
+    }
+  }
+
   if (kind === 'onb') {
     document.activeElement?.blur();
     await onbSubmit(f, form);
@@ -6595,6 +6781,13 @@ async function boot() {
   }
   try {
     if (store.isCloud) {
+      const hash = new URLSearchParams(location.hash.slice(1));
+      if (hash.get('type') === 'recovery') state.recovery = 'new';
+      if (hash.get('error_code')) {
+        state.authMode = 'forgot';
+        state.authNotice = { warn: true, text: 'Der Link ist abgelaufen oder wurde schon benutzt. Fordere hier einfach einen neuen an.' };
+        history.replaceState(null, '', location.pathname + location.search);
+      }
       await store.initCloud();
       await readInviteFromUrl();
       state.session = await store.getSession();
@@ -6606,14 +6799,22 @@ async function boot() {
           state.onb = null;
           store.setFamilyMode(false);
           render();
+        } else if (event === 'PASSWORD_RECOVERY' && session) {
+          state.session = session;
+          state.recovery ||= 'new';
+          render();
         } else if (session) {
           const fresh = !state.session;
           state.session = session;
           // Nach dem Bestätigungslink aus der Mail: angemeldet, aber App noch nicht gestartet
-          if (fresh && !state.data && !state.onb) enterApp();
+          if (fresh && !state.data && !state.onb && !state.recovery) enterApp();
         }
       });
-      if (!state.session) return render();
+      if (!state.session) {
+        state.recovery = null;
+        return render();
+      }
+      if (state.recovery) return render();
       return await enterApp();
     }
     await startData();

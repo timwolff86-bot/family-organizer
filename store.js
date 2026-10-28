@@ -152,8 +152,18 @@ export async function deleteInvite(code) {
   if (error) throw error;
 }
 
-export async function signOut() {
-  if (sb) await sb.auth.signOut();
+// Passwort vergessen: Mail mit Link schicken. Der Link öffnet die App zum Festlegen eines neuen Passworts.
+export async function resetPassword(email) {
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if (error) throw error;
+}
+export async function updatePassword(password) {
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) throw error;
+}
+
+export async function signOut(scope = 'global') {
+  if (sb) await sb.auth.signOut({ scope }).catch(() => sb.auth.signOut({ scope: 'local' }));
 }
 
 // Live-Änderungen der anderen Geräte. onStatus(true/false): Verbindung steht / ist weg.
