@@ -5367,3 +5367,24 @@ details[open] > summary .sum-ic {
 .start-check .ic { width: 16px; height: 16px; color: #fff; }
 .start-step.done .start-check { background: var(--accent); }
 .start-step.done > span:last-child { color: var(--muted); text-decoration: line-through; }
+/* Mehr: Konto & App */
+.menu-list li > button, .menu-list li.menu-info { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; }
+.menu-list li:last-child > button, .menu-list li.menu-info:last-child { border-bottom: 0; }
+.menu-list .grow-col, .k-list .grow-col, .k-hero .grow-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.menu-ic { width: 32px; height: 32px; flex: none; display: grid; place-items: center; font-size: 19px; background: var(--accent-soft); border-radius: 9px; }
+.danger-text { color: var(--red); }
+/* Familienkonto */
+.k-hero { display: flex; align-items: center; gap: 14px; padding: 16px; margin-bottom: 6px; }
+.k-hero-ic { font-size: 30px; width: 52px; height: 52px; display: grid; place-items: center; background: var(--accent-soft); border-radius: 14px; flex: none; }
+.k-name { font-size: 19px; font-weight: 700; }
+.k-row, .k-add { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 8px 11px 14px; border-bottom: 1px solid var(--line); text-align: left; }
+.k-list li:last-child .k-add { border-bottom: 0; }
+.k-av { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; background: var(--accent); font-size: 15px; }
+.k-av.pending { background: var(--accent-soft); font-size: 16px; }
+.k-av.add { background: transparent; border: 2px dashed var(--accent); color: var(--accent); }
+.k-av.add .ic { width: 18px; height: 18px; }
+.k-add { color: var(--accent); font-weight: 600; }
+.k-mail { overflow-wrap: anywhere; }
+.k-act { color: var(--muted); flex: none; }
+.k-hint { margin: 8px 4px 0; }
+.k-list li .k-act { width: auto; padding: 8px; border-bottom: 0; }

@@ -32,6 +32,8 @@ const P = {
   more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
   meal: '<path d="M5 3v6a2.5 2.5 0 0 0 5 0V3M7.5 3v18"/><path d="M19 15V3a4.5 4.5 0 0 0-4 4.5v5.5a2 2 0 0 0 2 2h2zm0 0v6"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14a6.5 6.5 0 0 1 3 6"/>',
+  share: '<path d="M12 3v12"/><path d="m7.5 7.5 4.5-4.5 4.5 4.5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>',
+  trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   note: '<path d="M5 3.5h14a1.5 1.5 0 0 1 1.5 1.5v10l-5.5 5.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5z"/><path d="M20.5 15H16a1 1 0 0 0-1 1v4.5M8 8.5h8M8 12h5"/>',
 };

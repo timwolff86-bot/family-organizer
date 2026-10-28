@@ -2343,7 +2343,7 @@ function viewMehr() {
     <div class="set-row"><span class="grow-col"><span>${label}</span>${hint ? `<span class="muted small">${hint}</span>` : ''}</span>${control}</div>`;
   return `
     <section>
-      <div class="section-head"><h2>Familie</h2><button class="link" data-action="new-member">${ic('plus')}Person</button></div>
+      <div class="section-head"><h2>${esc(state.family?.name || 'Familie')}</h2><button class="link" data-action="new-member">${ic('plus')}Person</button></div>
       <ul class="card list">
         ${ms
           .map(
@@ -2355,7 +2355,6 @@ function viewMehr() {
           )
           .join('')}
       </ul>
-      ${familyEntry()}
     </section>
 
     <section>
@@ -2411,17 +2410,31 @@ function viewMehr() {
     ${pushSection()}
 
     <section>
-      <h2>App</h2>
-      <div class="card pad">
-        <p class="with-ic">${store.isCloud ? `${ic('cloud')}Gemeinsamer Speicher aktiv.` : `${ic('phone')}Lokaler Modus: Daten liegen nur auf diesem Gerät.`}</p>
-        <p class="muted small">Installieren – iPhone: in Safari „Teilen“ → „Zum Home-Bildschirm“. Android: Menü → „App installieren“.</p>
-        ${store.isCloud && state.session ? `<p class="muted small">Angemeldet als ${esc(state.session.user.email)}</p><button class="btn ghost" data-action="logout">Abmelden</button>` : ''}
-      </div>
-      <button class="card nav-row" data-action="backup">
-        <span class="nav-icon">💾</span>
-        <span class="grow-col"><span class="title">Daten sichern</span><span class="muted small">Alle Einträge als Datei speichern</span></span>
-        <span class="chev">${ic('right')}</span>
-      </button>
+      <h2>Konto &amp; App</h2>
+      <ul class="card list menu-list">
+        ${
+          state.family
+            ? `<li><button data-action="open-konto"><span class="menu-ic">👥</span>
+          <span class="grow-col"><span>Zugänge &amp; Einladungen</span><span class="muted small">Partner/in oder andere Familien einladen</span></span>
+          <span class="chev">${ic('right')}</span></button></li>`
+            : ''
+        }
+        <li><button data-action="backup"><span class="menu-ic">💾</span>
+          <span class="grow-col"><span>Daten sichern</span><span class="muted small">Alle Einträge als Datei speichern</span></span>
+          <span class="chev">${ic('right')}</span></button></li>
+        ${
+          isStandalone()
+            ? ''
+            : `<li class="menu-info"><span class="menu-ic">📱</span>
+          <span class="grow-col"><span>Als App installieren</span><span class="muted small">iPhone: in Safari „Teilen“ → „Zum Home-Bildschirm“. Android: Menü → „App installieren“.</span></span></li>`
+        }
+        ${
+          store.isCloud && state.session
+            ? `<li><button data-action="logout"><span class="menu-ic">🚪</span>
+          <span class="grow-col"><span class="danger-text">Abmelden</span><span class="muted small">Angemeldet als ${esc(state.session.user.email)}</span></span></button></li>`
+            : `<li class="menu-info"><span class="menu-ic">📱</span><span class="grow-col"><span>Lokaler Modus</span><span class="muted small">Daten liegen nur auf diesem Gerät.</span></span></li>`
+        }
+      </ul>
     </section>`;
 }
 
@@ -4082,15 +4095,6 @@ async function finishFamily() {
 
 /* ---------- Mehr → Familienkonto ---------- */
 
-function familyEntry() {
-  if (!state.family) return '';
-  return `<button class="card nav-row" data-action="open-konto">
-    <span class="nav-icon">🔑</span>
-    <span class="grow-col"><span class="title">${esc(state.family.name)}</span><span class="muted small">Zugänge und Einladungen</span></span>
-    <span class="chev">${ic('right')}</span>
-  </button>`;
-}
-
 async function loadKonto() {
   try {
     const [accounts, invites] = await Promise.all([store.familyAccounts(), store.openInvites()]);
@@ -4111,42 +4115,49 @@ function viewKonto() {
   const until = (x) => `gültig bis ${new Date(x.expires_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })}`;
   const joinInv = k.invites.filter((x) => x.kind === 'join');
   const famInv = k.invites.filter((x) => x.kind === 'family');
-  const invRow = (x) => `<li class="inv-row">
-      <span class="grow-col"><span class="inv-code">${esc(fmtCode(x.code))}</span><span class="muted small">${x.note ? `${esc(x.note)} · ` : ''}${until(x)}</span></span>
-      <button class="link" data-action="invite-share" data-code="${x.code}" data-kind="${x.kind}">Teilen</button>
-      <button class="link danger" data-action="invite-delete" data-code="${x.code}">Zurückziehen</button>
+  const initial = (email) => esc((email || '?')[0].toUpperCase());
+  const invRow = (x, title) => `<li class="k-row">
+      <span class="k-av pending">✉️</span>
+      <span class="grow-col"><span>${esc(title)}</span><span class="muted small">Code ${esc(fmtCode(x.code))} · ${until(x)}</span></span>
+      <button class="icon-btn k-act" data-action="invite-share" data-code="${x.code}" data-kind="${x.kind}" aria-label="Einladung teilen">${ic('share')}</button>
+      <button class="icon-btn k-act" data-action="invite-delete" data-code="${x.code}" aria-label="Einladung zurückziehen">${ic('close')}</button>
     </li>`;
+  const addRow = (kind, label) => `<li><button class="k-add" data-action="invite-new" data-kind="${kind}"><span class="k-av add">${ic('plus')}</span><span>${label}</span></button></li>`;
   return `
-    <section>
-      <div class="card set-card">
-        <div class="set-row"><span class="grow-col"><span class="muted small">Name der Familie</span><span class="title">${esc(state.family.name)}</span></span>
-          <button class="link" data-action="family-rename">Ändern</button></div>
-      </div>
+    <section class="k-hero card">
+      <span class="k-hero-ic">🏡</span>
+      <span class="grow-col"><span class="k-name">${esc(state.family.name)}</span>
+        <span class="muted small">${k.accounts.length} ${k.accounts.length === 1 ? 'Zugang' : 'Zugänge'} · ${members().length} ${members().length === 1 ? 'Person' : 'Personen'}</span></span>
+      <button class="icon-btn" data-action="family-rename" aria-label="Familie umbenennen">${ic('pencil')}</button>
     </section>
+
     <section>
       <h2>Wer sich anmelden kann</h2>
-      <ul class="card list">
+      <ul class="card list k-list">
         ${k.accounts
           .map(
-            (a) => `<li class="acc-row"><span class="nav-icon">👤</span>
-            <span class="grow-col"><span>${esc(a.email || 'ohne E-Mail')} ${a.user_id === me ? '<span class="tag soft">Du</span>' : ''}</span>
-            <span class="muted small">${a.role === 'owner' ? 'darf Zugänge verwalten' : 'Mitglied'}</span></span>
-            ${owner && a.user_id !== me ? `<button class="link danger" data-action="account-remove" data-id="${a.user_id}" data-email="${esc(a.email || '')}">Entfernen</button>` : ''}
+            (a) => `<li class="k-row">
+            <span class="k-av">${initial(a.email)}</span>
+            <span class="grow-col"><span class="k-mail">${esc(a.email || 'ohne E-Mail')}${a.user_id === me ? ' <span class="tag soft">Du</span>' : ''}</span>
+              <span class="muted small">${a.role === 'owner' ? 'verwaltet die Zugänge' : 'Mitglied'}</span></span>
+            ${owner && a.user_id !== me ? `<button class="icon-btn k-act" data-action="account-remove" data-id="${a.user_id}" data-email="${esc(a.email || '')}" aria-label="Zugang entfernen">${ic('trash')}</button>` : ''}
           </li>`
           )
           .join('')}
+        ${joinInv.map((x) => invRow(x, 'Einladung offen')).join('')}
+        ${addRow('join', 'Partner/in einladen')}
       </ul>
-      <button class="btn primary wide" data-action="invite-new" data-kind="join">${ic('plus')}Partner/in einladen</button>
-      ${joinInv.length ? `<p class="field-label">Offene Einladungen</p><ul class="card list">${joinInv.map(invRow).join('')}</ul>` : ''}
-      <p class="muted small">Kinder-Handys brauchen kein eigenes Konto: mit einem Elternkonto anmelden und dann das Kind auswählen.</p>
+      <p class="muted small k-hint">Kinder-Handys brauchen kein eigenes Konto: mit einem Elternkonto anmelden und dann das Kind auswählen.</p>
     </section>
     ${
       state.family.canInviteFamilies
         ? `<section>
       <h2>Andere Familien einladen</h2>
-      <p class="muted small">Die eingeladene Familie bekommt eigene, getrennte Daten und sieht nichts von euch.</p>
-      <button class="btn ghost wide" data-action="invite-new" data-kind="family">${ic('plus')}Neue Familie einladen</button>
-      ${famInv.length ? `<p class="field-label">Offene Einladungen</p><ul class="card list">${famInv.map(invRow).join('')}</ul>` : ''}
+      <ul class="card list k-list">
+        ${famInv.map((x) => invRow(x, x.note || 'Familie (noch nicht angemeldet)')).join('')}
+        ${addRow('family', 'Neue Familie einladen')}
+      </ul>
+      <p class="muted small k-hint">Jede eingeladene Familie hat eigene, getrennte Daten und sieht nichts von euch.</p>
     </section>`
         : ''
     }`;
