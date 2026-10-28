@@ -3772,7 +3772,7 @@ function errText(e, fallback = 'Das hat nicht geklappt. Bitte Internetverbindung
   for (const [k, t] of Object.entries(FAMILY_ERRORS)) if (m.includes(k)) return t;
   if (/already registered|already exists/i.test(m)) return 'Für diese E-Mail gibt es schon ein Konto. Bitte melde dich an.';
   if (/password/i.test(m) && /(at least|short|weak|characters)/i.test(m)) return 'Das Passwort ist zu kurz oder zu einfach (mindestens 8 Zeichen).';
-  if (/signups?.*(not allowed|disabled)/i.test(m)) return 'Neue Konten sind gerade nicht freigeschaltet.';
+  if (/signups?.*(not allowed|disabled)/i.test(m)) return 'Neue Konten sind gerade nicht freigeschaltet. (Hinweis für den Admin: In Supabase unter Authentication → Sign In / Providers „Allow new users to sign up“ einschalten.)';
   if (/invalid.*email|email.*invalid|unable to validate email/i.test(m)) return 'Bitte eine gültige E-Mail-Adresse eingeben.';
   if (/rate limit|too many/i.test(m)) return 'Zu viele Versuche. Bitte in ein paar Minuten nochmal.';
   if (/Invalid login credentials/i.test(m)) return 'E-Mail oder Passwort falsch.';
@@ -6209,7 +6209,7 @@ document.addEventListener('submit', async (e) => {
       try {
         info = await store.rpc('invite_info', { p_code: code });
       } catch (e) {
-        if (e.missing) throw userText('Neue Konten sind gerade nicht freigeschaltet.');
+        if (e.missing) throw userText('Registrieren ist noch nicht eingerichtet. (Hinweis für den Admin: Datenbank-Update 21 fehlt.)');
         throw e;
       }
       if (!info?.ok) throw new Error('invalid_code');
