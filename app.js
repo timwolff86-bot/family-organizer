@@ -826,7 +826,7 @@ function taskRow(x, { stack = false } = {}) {
           : `<button class="check" data-action="toggle-task" data-id="${t.id}" data-day="${x.day}" aria-label="Erledigt">${x.done ? ic('check') : ''}</button>`
       }
       <button class="task-main" data-action="edit-task" data-id="${t.id}" data-day="${x.day}">
-        <span class="title">${esc(t.title)}</span>
+        <span class="title">${isReminder(t) ? `<span class="t-bell">${ic('bell')}</span>` : ''}${esc(t.title)}</span>
         <span class="meta">${badges}${stack ? '' : chips(peopleOf(t))}${by ? `<span class="muted small with-ic">${ic('check')}${esc(by.name)}</span>` : ''}</span>
       </button>
       ${stack ? avatarStack(peopleOf(t)) : ''}
@@ -2822,7 +2822,7 @@ function wasteTaskRow(it) {
   return `<li class="task ${p.put_out_at ? 'done' : ''}">
     <button class="check" data-action="waste-out" data-id="${p.id}" aria-label="Rausgestellt">${p.put_out_at ? ic('check') : ''}</button>
     <button class="task-main" data-action="tab" data-tab="abfall">
-      <span class="title">${esc(binsText(p.bins))} rausstellen${binsIcons(p.bins)}</span>
+      <span class="title"><span class="t-bell">${ic('bell')}</span>${esc(binsText(p.bins))} rausstellen${binsIcons(p.bins)}</span>
       <span class="meta"><span class="tag time">${ic('clock')}${esc(s.time || '19:00')}</span>${chips(s.people || [])}</span>
     </button>
   </li>`;
