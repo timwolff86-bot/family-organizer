@@ -3789,6 +3789,9 @@ function errText(e, fallback = 'Das hat nicht geklappt. Bitte Internetverbindung
   if (/rate limit|too many/i.test(m)) return 'Zu viele Versuche. Bitte in ein paar Minuten nochmal.';
   if (/Invalid login credentials/i.test(m)) return 'E-Mail oder Passwort falsch.';
   if (/different from the old password/i.test(m)) return 'Das ist dein bisheriges Passwort. Bitte wähle ein neues.';
+  if (/only request this after/i.test(m)) return 'Bitte warte etwa eine Minute und versuch es dann nochmal.';
+  if (/sending.*(recovery|confirmation|magic link)? ?e?mail|smtp/i.test(m))
+    return 'Die Mail konnte gerade nicht verschickt werden. (Hinweis für den Admin: Mail-Versand/SMTP in Supabase prüfen.)';
   if (/Email not confirmed/i.test(m)) return 'Bitte bestätige zuerst deine E-Mail-Adresse (Link in der Mail).';
   return fallback;
 }
@@ -6441,7 +6444,9 @@ document.addEventListener('submit', async (e) => {
       render();
     } catch (err) {
       console.error(err);
-      $('#login-error').textContent = errText(err, 'Das hat nicht geklappt. Bitte Internetverbindung prüfen und nochmal versuchen.');
+      // Unbekannter Fehler: die Meldung von Supabase klein mit anzeigen, damit man die Ursache findet
+      const known = errText(err, '');
+      $('#login-error').textContent = known || `Das hat nicht geklappt. Bitte nochmal versuchen. (${String(err?.message || err).slice(0, 120)})`;
       btn.disabled = false;
     }
   }
