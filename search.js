@@ -16,7 +16,8 @@ export function fold(s) {
     .trim();
 }
 
-// Ähnliche Begriffe: findet man ein Wort der Gruppe, zählen die anderen mit
+// Oberbegriffe: das erste Wort findet auch alle anderen der Gruppe ("Arzt" → Zahnarzt, Physio …),
+// ein genauer Begriff aber nicht den Rest ("Zahnarzt" findet keine Physio-Termine)
 const GROUPS = [
   ['arzt', 'aerztin', 'doktor', 'doc', 'praxis', 'kinderarzt', 'hausarzt', 'zahnarzt', 'augenarzt', 'frauenarzt', 'hautarzt', 'hno', 'orthopaede', 'kieferorthopaede', 'kfo', 'impfung', 'vorsorge', 'untersuchung', 'klinik', 'krankenhaus', 'physio', 'therapie'],
   ['zahnarzt', 'zahn', 'zaehne', 'kfo', 'kieferorthopaede', 'zahnspange', 'zahnreinigung', 'prophylaxe'],
@@ -32,8 +33,21 @@ const GROUPS = [
   ['auto', 'werkstatt', 'tuev', 'reifen', 'inspektion'],
 ];
 
+// Gleichbedeutende Wörter: finden sich gegenseitig
+const SAME = [
+  ['arzt', 'aerztin', 'doktor', 'doc'],
+  ['physio', 'physiotherapie', 'krankengymnastik'],
+  ['zahn', 'zaehne'],
+  ['friseur', 'frisoer'],
+  ['einkauf', 'einkaufen'],
+  ['muell', 'abfall'],
+  ['urlaub', 'reise'],
+];
+
 const SYN = new Map();
-for (const g of GROUPS) for (const w of g) SYN.set(w, [...new Set([...(SYN.get(w) || []), ...g])]);
+const add = (w, list) => SYN.set(w, [...new Set([...(SYN.get(w) || []), ...list])]);
+for (const g of SAME) for (const w of g) add(w, g);
+for (const g of GROUPS) for (const w of [g[0], ...(SAME.find((x) => x.includes(g[0])) || [])]) add(w, g);
 
 // Tippfehler-Abstand (Damerau-Levenshtein, begrenzt)
 function distance(a, b, max) {
