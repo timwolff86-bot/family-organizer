@@ -3780,6 +3780,10 @@ function errText(e, fallback = 'Das hat nicht geklappt. Bitte Internetverbindung
   return fallback;
 }
 
+document.addEventListener('input', (e) => {
+  if (e.target.name === 'pn' && e.target.closest('.onb-person')) refreshOnbAvatar(e.target.closest('.onb-person'));
+});
+
 // Einladungslink geöffnet (…?einladung=ABCD2345): Code merken und gleich prüfen
 async function readInviteFromUrl() {
   const q = new URLSearchParams(location.search);
@@ -3884,7 +3888,7 @@ async function enterAppNow() {
 async function startOnboarding() {
   const meta = state.session?.user?.user_metadata || {};
   const code = state.invite?.code || meta.invite_code || lsGet('fo-invite') || '';
-  state.onb = { step: 'code', code, people: [{ name: meta.name || '', role: 'erwachsen' }] };
+  state.onb = { step: 'code', code, people: [{ name: meta.name || '', role: 'erwachsen', color: COLORS[0], avatar: null }] };
   if (code) await checkOnbCode(code).catch(() => {});
   render();
 }
@@ -3946,25 +3950,7 @@ function onboardingScreen() {
       <p class="muted">Alle, die im Kalender vorkommen sollen – auch Kinder ohne eigenes Handy.</p>
       <form class="onb-form" data-form="onb">
         <div class="onb-people">
-          ${o.people
-            .map(
-              (p, i) => `
-            <div class="card onb-person">
-              <div class="onb-person-top">
-                <input name="pn" value="${esc(p.name)}" placeholder="${i === 0 ? 'Dein Vorname' : 'Name'}" maxlength="40" aria-label="Name" />
-                ${i === 0 ? '<span class="tag soft">Du</span>' : `<button type="button" class="icon-btn" data-action="onb-remove-person" data-i="${i}" aria-label="Entfernen">${ic('close')}</button>`}
-              </div>
-              <div class="seg wide onb-role">
-                ${[
-                  ['erwachsen', 'Erwachsen'],
-                  ['kind', 'Kind'],
-                ]
-                  .map(([k, l]) => `<label><input type="radio" name="pr${i}" value="${k}" ${p.role === k ? 'checked' : ''} /><span>${l}</span></label>`)
-                  .join('')}
-              </div>
-            </div>`
-            )
-            .join('')}
+          ${o.people.map((p, i) => onbPersonCard(p, i)).join('')}
         </div>
         <button type="button" class="btn ghost wide" data-action="onb-add-person">${ic('plus')}Weitere Person</button>
         <button class="btn primary wide">Weiter</button>
@@ -4007,11 +3993,50 @@ function onboardingScreen() {
     </div>`;
 }
 
+// Eine Person in der Einrichtung: Foto (antippen), Name, Erwachsen/Kind, Farbe
+function onbPersonCard(p, i) {
+  return `
+    <div class="card onb-person" data-i="${i}">
+      <div class="onb-person-top">
+        <label class="onb-av" aria-label="Foto wählen">
+          ${avatar({ name: p.name || '?', color: p.color, avatar: p.avatar })}
+          <span class="onb-cam">${ic('camera')}</span>
+          <input type="file" class="onb-photo" accept="image/*" hidden />
+        </label>
+        <input name="pn" value="${esc(p.name)}" placeholder="${i === 0 ? 'Dein Vorname' : 'Name'}" maxlength="40" aria-label="Name" />
+        ${i === 0 ? '<span class="tag soft">Du</span>' : `<button type="button" class="icon-btn" data-action="onb-remove-person" data-i="${i}" aria-label="Entfernen">${ic('close')}</button>`}
+      </div>
+      <div class="onb-roles" role="radiogroup" aria-label="Erwachsen oder Kind">
+        ${[
+          ['erwachsen', '🧑', 'Erwachsen'],
+          ['kind', '🧒', 'Kind'],
+        ]
+          .map(
+            ([k, e, l]) => `<label><input type="radio" name="pr${i}" value="${k}" ${p.role === k ? 'checked' : ''} />
+              <span><span class="onb-role-e">${e}</span>${l}<span class="onb-role-check">${ic('check')}</span></span></label>`
+          )
+          .join('')}
+      </div>
+      <div class="colors onb-colors" aria-label="Farbe">${COLORS.map(
+        (c) => `<label><input type="radio" name="pc${i}" value="${c}" ${p.color === c ? 'checked' : ''}/><span style="background:${c}"></span></label>`
+      ).join('')}</div>
+    </div>`;
+}
+
 function readOnbPeople() {
   return [...document.querySelectorAll('.onb-person')].map((row, i) => ({
     name: row.querySelector('[name="pn"]').value.trim(),
     role: row.querySelector(`[name="pr${i}"]:checked`)?.value || 'erwachsen',
+    color: row.querySelector(`[name="pc${i}"]:checked`)?.value || COLORS[i % COLORS.length],
+    avatar: state.onb.people[i]?.avatar || null,
   }));
+}
+// Vorschau-Kreis aktualisieren (Name, Farbe), ohne neu zu zeichnen
+function refreshOnbAvatar(row) {
+  const i = Number(row.dataset.i);
+  const p = readOnbPeople()[i];
+  const av = row.querySelector('.onb-av');
+  av.querySelector('.av').outerHTML = avatar({ name: p.name || '?', color: p.color, avatar: p.avatar });
 }
 
 async function onbSubmit(f, form) {
@@ -4078,7 +4103,7 @@ async function finishFamily() {
   store.setFamilyMode(true);
   const ids = [];
   for (const [i, p] of o.people.entries()) {
-    const row = { id: store.uuid(), name: p.name, role: p.role, color: COLORS[i % COLORS.length], sort: i, drives: p.role === 'erwachsen' };
+    const row = { id: store.uuid(), name: p.name, role: p.role, color: p.color || COLORS[i % COLORS.length], sort: i, drives: p.role === 'erwachsen', ...(p.avatar ? { avatar: p.avatar } : {}) };
     await store.upsert('members', row);
     ids.push(row.id);
   }
@@ -5040,9 +5065,19 @@ function memberForm(m, { role = 'kind', onSaved = null } = {}) {
       <input type="hidden" name="avatar" id="avatar-value" value="${esc(m.avatar || '')}" />
     </div>
     <label>Name<input name="name" value="${esc(m.name || '')}" required /></label>
-    <label>Rolle<select name="role">${Object.entries(ROLES)
-      .map(([k, l]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${l}</option>`)
-      .join('')}</select></label>
+    <div class="field-label">Rolle</div>
+    <div class="onb-roles three" role="radiogroup" aria-label="Rolle">
+      ${[
+        ['erwachsen', '🧑'],
+        ['kind', '🧒'],
+        ['helfer', '🤝'],
+      ]
+        .map(
+          ([k, e]) => `<label><input type="radio" name="role" value="${k}" ${m.role === k ? 'checked' : ''} />
+            <span><span class="onb-role-e">${e}</span>${ROLES[k]}<span class="onb-role-check">${ic('check')}</span></span></label>`
+        )
+        .join('')}
+    </div>
     <div class="colors">${COLORS.map(
       (c) => `<label><input type="radio" name="color" value="${c}" ${m.color === c ? 'checked' : ''}/><span style="background:${c}"></span></label>`
     ).join('')}</div>`;
@@ -5763,7 +5798,8 @@ const actions = {
   },
   'onb-add-person': () => {
     state.onb.people = readOnbPeople();
-    state.onb.people.push({ name: '', role: 'kind' });
+    const used = new Set(state.onb.people.map((x) => x.color));
+    state.onb.people.push({ name: '', role: 'kind', color: COLORS.find((c) => !used.has(c)) || COLORS[state.onb.people.length % COLORS.length], avatar: null });
     render();
     [...document.querySelectorAll('.onb-person [name="pn"]')].pop()?.focus();
   },
@@ -5944,6 +5980,22 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', async (e) => {
   const el = e.target;
+  // Einrichtung: Foto einer Person wählen und zuschneiden
+  if (el.classList?.contains('onb-photo') && el.files?.[0]) {
+    const row = el.closest('.onb-person');
+    try {
+      const data = await openCropper(el.files[0]);
+      el.value = '';
+      if (!data) return;
+      state.onb.people = readOnbPeople();
+      state.onb.people[Number(row.dataset.i)].avatar = data;
+      render();
+    } catch {
+      toast('Das Bild konnte nicht geladen werden.');
+    }
+    return;
+  }
+  if (el.closest?.('.onb-person') && el.name?.startsWith('pc')) return refreshOnbAvatar(el.closest('.onb-person'));
   if (el.id === 'avatar-file' && el.files?.[0]) {
     try {
       const data = await openCropper(el.files[0]);
