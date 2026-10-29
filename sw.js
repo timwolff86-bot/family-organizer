@@ -1,13 +1,11 @@
 // Service Worker: macht die App installierbar und startet sie auch bei schlechtem Netz.
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
 // Supabase-Bibliothek vom CDN: aus dem Cache, weil sich die Version nie ändert.
-const CACHE = 'familienplaner-v118';
+const CACHE = 'familienplaner-v119';
 const SHELL = [
   './',
   'index.html',
   'styles.css',
-  'skins.css',
-  'skins.js',
   'app.js',
   'store.js',
   'dates.js',

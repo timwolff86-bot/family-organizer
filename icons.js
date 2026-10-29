@@ -41,14 +41,5 @@ const P = {
 // Ausgefüllte Varianten (Stern als Favorit, Punkte im Menü)
 const FILLED = new Set(['more']);
 
-// Skins können einzelne Symbole durch Emojis ersetzen (siehe skins.js)
-const OVERRIDE = {};
-export const setIconOverrides = (map = {}) => {
-  for (const k of Object.keys(OVERRIDE)) delete OVERRIDE[k];
-  Object.assign(OVERRIDE, map);
-};
-
 export const ic = (name, cls = '') =>
-  OVERRIDE[name]
-    ? `<span class="ic ic-emoji ${cls}" aria-hidden="true">${OVERRIDE[name]}</span>`
-    : `<svg class="ic ${cls}${FILLED.has(name) ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;
+  `<svg class="ic ${cls}${FILLED.has(name) ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${P[name] || ''}</svg>`;

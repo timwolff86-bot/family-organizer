@@ -5,7 +5,6 @@ import { RECIPE_CATEGORIES, SEED_RECIPES, STAPLES, recipeCategory } from './reci
 import { STATES, holidayOn, refreshSchoolHolidays, schoolHolidayOn } from './holidays.js';
 import { combineFilters, parseQuery, scoreFields } from './search.js';
 import { ic } from './icons.js';
-import { SKINS, applySkin, skinOf } from './skins.js';
 import * as push from './push.js';
 import * as rt from './richtext.js';
 
@@ -57,10 +56,8 @@ function applyTheme(theme = lsGet('fo-theme') || 'auto') {
   if (theme === 'auto') delete root.dataset.theme;
   else root.dataset.theme = theme;
   const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  const skin = skinOf(lsGet('fo-skin'));
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', skin.ownScheme ? skin.color : dark ? '#16181b' : '#f6f4ef');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#16181b' : '#f6f4ef');
 }
-applySkin(lsGet('fo-skin'));
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme());
 
@@ -2392,15 +2389,6 @@ function viewMehr() {
           'für Ferien und Feiertage'
         )}
         <div class="set-row col">
-          <span>Stil</span>
-          <div class="skin-pick">
-            ${SKINS.map(
-              (k) => `<button class="${skinOf(lsGet('fo-skin')).id === k.id ? 'on' : ''}" data-action="set-skin" data-skin="${k.id}">
-                <span class="skin-dot" style="background:linear-gradient(135deg, ${k.colors[0]} 50%, ${k.colors[1]} 50%)"></span>${k.label}</button>`
-            ).join('')}
-          </div>
-        </div>
-        <div class="set-row col" ${skinOf(lsGet('fo-skin')).ownScheme ? 'hidden' : ''}>
           <span>Darstellung</span>
           <div class="seg wide theme-seg">
             ${[
@@ -5471,12 +5459,6 @@ const actions = {
     const b = state.data.birthdays.find((x) => x.id === d.id);
     closeSheet();
     removeWithUndo('birthdays', d.id, `Geburtstag von ${b?.name || '…'} gelöscht`);
-  },
-  'set-skin': (d) => {
-    lsSet('fo-skin', d.skin === 'standard' ? null : d.skin);
-    applySkin(d.skin);
-    applyTheme();
-    render();
   },
   'set-theme': (d) => {
     lsSet('fo-theme', d.theme === 'auto' ? null : d.theme);
